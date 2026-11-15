@@ -6,13 +6,14 @@
 - [x] Create hardware shopping and pinout wiring guide (`docs/hardware-guide.md`)
 - [x] Create technical research notes and feasibility dossier (`docs/research-notes.md`)
 - [x] Scaffold repository directory layout (`cloud-gateway/`, `firmware/`, `pc-simulator/`, `docs/`, `tasks/`)
-- [x] Install Python audio simulation dependencies (`sounddevice`, `websockets`, `numpy`)
-- [ ] Initialize Cloudflare Worker project (`cloud-gateway/wrangler.toml`, `package.json`, `src/index.ts`)
-- [ ] Implement `@cf/openai/whisper` speech-to-text handler in Cloudflare Worker
-- [ ] Implement Meta MuseAI GraphQL client with session cookie authentication
-- [ ] Implement Neural TTS streaming audio generator
-- [ ] Build PC Mic Simulator (`pc-simulator/simulator.py`) to stream 16kHz audio from laptop mic
-- [ ] Test live voice conversation: Laptop Mic ➔ Cloudflare ➔ Meta MuseAI ➔ Echo Dot (via Bluetooth to PC)
+- [x] Install Python audio simulation dependencies (`sounddevice`, `websockets`, `numpy`, `pyttsx3`, `requests`)
+- [x] Initialize Cloudflare Worker project (`cloud-gateway/wrangler.toml`, `package.json`, `src/index.ts`)
+- [x] Implement `@cf/openai/whisper` speech-to-text handler in Cloudflare Worker
+- [x] Implement Meta MuseAI GraphQL client with session cookie authentication
+- [x] Deploy Cloudflare Worker to production via Cloudflare MCP (`https://sidecar-cloud-gateway.ismamhasanovi.workers.dev`)
+- [x] Build PC Mic Simulator (`pc-simulator/simulator.py`) to stream 16kHz audio from laptop mic
+- [ ] Connect Meta Muse cookies (`META_C_USER`, `META_XS`, `META_DATR`) to Cloudflare Worker
+- [ ] Run live end-to-end voice test with PC simulator
 
 ## Checkpoint 1: Working Live Voice Jarvis on PC (Tonight)
 - [ ] Spoken question into laptop mic triggers Meta MuseAI query and audio response plays on speaker
