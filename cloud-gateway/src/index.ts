@@ -1,6 +1,7 @@
 export interface Env {
   AI: any;
   WAKE_WORD?: string;
+  MUSE_BRIDGE_URL?: string; // 24/7 Meta Muse AI Bridge endpoint
   HATCH_SESS?: string;
   HATCH_GW?: string;
   DATR?: string;
@@ -12,9 +13,29 @@ export interface Env {
 }
 
 /**
- * Dedicated Jarvis persona via Cloudflare Workers AI Meta Llama 3.1.
+ * Primary Brain: Meta Muse AI (Personal Account over Hatch Noise_XX Protocol).
+ * Dispatches voice queries to your authentic Muse AI assistant.
  */
 async function queryJarvisBrain(prompt: string, env: Env): Promise<string> {
+  // 1. Query your authentic Meta Muse AI personal assistant
+  if (env.MUSE_BRIDGE_URL) {
+    try {
+      const targetUrl = env.MUSE_BRIDGE_URL.replace(/\/$/, "");
+      const resp = await fetch(`${targetUrl}/api/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt })
+      });
+      if (resp.ok) {
+        const data: any = await resp.json();
+        if (data?.reply) return data.reply;
+      }
+    } catch (err) {
+      console.warn("Muse AI Bridge connection error, using Workers AI:", err);
+    }
+  }
+
+  // 2. Cloudflare Workers AI edge model
   try {
     const aiResp: any = await env.AI.run("@cf/meta/llama-3.1-8b-instruct-fp8", {
       messages: [
@@ -183,8 +204,8 @@ export default {
         ttsEngine: "Hugging Face Piper JARVIS (Paul Bettany)",
         hfSpaceUrl: env.HF_SPACE_URL || "https://ekc4-jarvis-tts.hf.space",
         ttsSpeaker: env.TTS_SPEAKER || "angus",
-        brainLLM: "@cf/meta/llama-3.1-8b-instruct-fp8",
-        museConfigured: Boolean(env.HATCH_SESS && env.HATCH_GW)
+        brain: env.MUSE_BRIDGE_URL ? "Meta Muse AI (Authentic Account)" : "@cf/meta/llama-3.1-8b-instruct-fp8",
+        museBridgeConfigured: Boolean(env.MUSE_BRIDGE_URL)
       }), {
         headers: { "Content-Type": "application/json" }
       });

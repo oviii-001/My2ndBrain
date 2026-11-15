@@ -15,6 +15,9 @@ TTS_SPEAKER = "angus" # Deepgram Aura: "angus" (British/Irish natural male), "or
 [triggers]
 crons = ["0 0 * * *"] # Every 24 hours
 
+# 24/7 Meta Muse AI Bridge Endpoint (when deployed to free cloud container or local tunnel):
+# Set via: npx wrangler secret put MUSE_BRIDGE_URL
+
 # Optional Hugging Face Free Space Endpoint & Token:
 # Set via: npx wrangler secret put HF_SPACE_URL
 # Set via: npx wrangler secret put HF_TOKEN
