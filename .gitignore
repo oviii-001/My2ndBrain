@@ -1,0 +1,27 @@
+# Environment & Secrets
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+# PlatformIO & ESP32 Firmware
+.pio/
+.pioenvs/
+.piolibdeps/
+build/
+*.bin
+*.elf
+
+# Node & Cloudflare Worker
+node_modules/
+dist/
+.wrangler/
+
+# System & OS
+.DS_Store
+Thumbs.db
+
+# Tool caches
+graphify-out/
+.cache/
