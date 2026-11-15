@@ -132,6 +132,26 @@ export default {
       }
     }
 
+    // Speech-to-Text ONLY Endpoint (fast transcription, no redundant LLM/TTS)
+    if (url.pathname === "/api/stt" && request.method === "POST") {
+      try {
+        const audioBuffer = await request.arrayBuffer();
+        if (!audioBuffer || audioBuffer.byteLength === 0) {
+          return new Response(JSON.stringify({ error: "Empty audio payload" }), { status: 400 });
+        }
+        const input = {
+          audio: [...new Uint8Array(audioBuffer)]
+        };
+        const sttResult: any = await env.AI.run("@cf/openai/whisper", input);
+        const transcript = sttResult?.text?.trim() || "";
+        return new Response(JSON.stringify({ transcript }), {
+          headers: { "Content-Type": "application/json" }
+        });
+      } catch (err: any) {
+        return new Response(JSON.stringify({ error: err.message }), { status: 500 });
+      }
+    }
+
     // Voice Processing Pipeline Endpoint
     if (url.pathname === "/api/voice" && request.method === "POST") {
       try {

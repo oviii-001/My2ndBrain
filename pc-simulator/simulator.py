@@ -51,6 +51,7 @@ def play_wake_chime():
 SAMPLE_RATE = 16000     # 16kHz standard for Whisper and INMP441
 CHANNELS = 1            # Mono
 CHUNK_SIZE = 1280       # 80ms chunks (1280 samples @ 16kHz) for openWakeWord
+STT_URL = "https://sidecar-cloud-gateway.ismamhasanovi.workers.dev/api/stt"
 GATEWAY_URL = "https://sidecar-cloud-gateway.ismamhasanovi.workers.dev/api/voice"
 MUSE_BRIDGE_URL = "http://localhost:8130/api/chat"
 TTS_GATEWAY_URL = "https://sidecar-cloud-gateway.ismamhasanovi.workers.dev/api/tts"
@@ -138,44 +139,54 @@ def _ensure_bridge():
         _bridge_thread = threading.Thread(target=_bridge_loop.run_forever, daemon=True)
         _bridge_thread.start()
         _in_process_bridge = MuseBridge()
+        # Pre-warm connection in background
+        asyncio.run_coroutine_threadsafe(_in_process_bridge.get_client(), _bridge_loop)
 
 def get_muse_reply_direct(prompt):
     """Direct in-process query to live Muse AI Jarvis over Noise XX protocol."""
     try:
         _ensure_bridge()
         future = asyncio.run_coroutine_threadsafe(_in_process_bridge.ask(prompt), _bridge_loop)
-        return future.result(timeout=35)
+        return future.result(timeout=20)
     except Exception as e:
         print(f"[!] Direct MuseBridge error: {e}")
         return None
 
 def query_gateway(audio_bytes, url=GATEWAY_URL):
     """
-    Send audio bytes to Cloudflare Gateway for Whisper transcription,
-    route directly through the live Muse AI Hatch Bridge, and speak the reply via MeloTTS neural audio.
+    Ultra-fast pipeline:
+    1. Whisper STT transcription via Cloudflare (~1s)
+    2. Direct Noise XX query to live Muse AI Jarvis (~2s)
+    3. MeloTTS neural audio synthesis via Cloudflare (~1s)
     """
     try:
         start_t = time.time()
         headers = {'Content-Type': 'audio/wav'}
 
-        # 1. Transcribe voice audio via Whisper on Cloudflare
-        resp = requests.post(url, data=audio_bytes, headers=headers, timeout=25)
+        # 1. Fast Whisper Transcription (uses dedicated /api/stt)
+        t_stt = time.time()
+        stt_resp = requests.post(STT_URL, data=audio_bytes, headers=headers, timeout=15)
         transcript = ""
         reply = ""
         audio_b64 = None
 
-        if resp.status_code == 200:
-            data = resp.json()
-            transcript = data.get('transcript', '').strip()
+        if stt_resp.status_code == 200:
+            transcript = stt_resp.json().get('transcript', '').strip()
+        else:
+            # Fallback to general voice endpoint
+            resp = requests.post(url, data=audio_bytes, headers=headers, timeout=25)
+            if resp.status_code == 200:
+                transcript = resp.json().get('transcript', '').strip()
 
         if not transcript:
             print("[!] Could not detect clear speech.")
             return
 
-        print(f"\n> You said: \"{transcript}\"")
-        print("[*] Contacting your authentic Muse AI Jarvis over Noise XX protocol...")
+        print(f"\n> You said: \"{transcript}\" ({round((time.time() - t_stt)*1000)}ms)")
+        print("[*] Streaming to Muse AI Jarvis...")
 
         # 2. Query your authentic Muse AI Jarvis assistant (Direct in-process)
+        t_muse = time.time()
         muse_connected = False
         reply = get_muse_reply_direct(transcript)
         if reply:
@@ -184,7 +195,7 @@ def query_gateway(audio_bytes, url=GATEWAY_URL):
         # Fallback to HTTP bridge or gateway if direct call fails
         if not reply:
             try:
-                m_resp = requests.post(MUSE_BRIDGE_URL, json={'prompt': transcript}, timeout=30)
+                m_resp = requests.post(MUSE_BRIDGE_URL, json={'prompt': transcript}, timeout=15)
                 if m_resp.status_code == 200:
                     reply = m_resp.json().get('reply', '')
                     muse_connected = True
@@ -192,12 +203,12 @@ def query_gateway(audio_bytes, url=GATEWAY_URL):
                 pass
 
         if not reply:
-            reply = data.get('reply', '')
+            reply = "I'm listening, Boss."
 
         latency = round((time.time() - start_t) * 1000)
         source_label = "MUSE AI (HATCH NOISE XX)" if muse_connected else "CLOUDFLARE FALLBACK"
         print(f"\n" + "-" * 55)
-        print(f"[JARVIS RESPONSE - {source_label}] ({latency}ms)")
+        print(f"[JARVIS RESPONSE - {source_label}] ({latency}ms roundtrip)")
         print(f"> Jarvis: \"{reply}\"")
         print("-" * 55 + "\n")
 
@@ -390,6 +401,10 @@ def main():
     if args.test:
         test_hardware()
         return
+
+    # Pre-warm Muse AI Noise XX WebSocket connection in background thread
+    print("[*] Pre-warming connection to Muse AI Jarvis...")
+    _ensure_bridge()
 
     if args.manual or not WAKE_WORD_AVAILABLE:
         if not WAKE_WORD_AVAILABLE and not args.manual:
