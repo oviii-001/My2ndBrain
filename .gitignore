@@ -29,3 +29,5 @@ Thumbs.db
 # Tool caches
 graphify-out/
 .cache/
+*.mp3
+*.wav
