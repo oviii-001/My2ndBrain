@@ -118,10 +118,41 @@ def speak_reply(text):
         print(f"[!] Speech synthesis error: {e}")
 
 
+import asyncio
+import threading
+
+_bridge_loop = None
+_bridge_thread = None
+_in_process_bridge = None
+
+def _ensure_bridge():
+    global _bridge_loop, _bridge_thread, _in_process_bridge
+    if _bridge_loop is None:
+        from pathlib import Path
+        repo_dir = Path(__file__).resolve().parent.parent
+        if str(repo_dir) not in sys.path:
+            sys.path.insert(0, str(repo_dir))
+        from muse_bridge_server import MuseBridge
+
+        _bridge_loop = asyncio.new_event_loop()
+        _bridge_thread = threading.Thread(target=_bridge_loop.run_forever, daemon=True)
+        _bridge_thread.start()
+        _in_process_bridge = MuseBridge()
+
+def get_muse_reply_direct(prompt):
+    """Direct in-process query to live Muse AI Jarvis over Noise XX protocol."""
+    try:
+        _ensure_bridge()
+        future = asyncio.run_coroutine_threadsafe(_in_process_bridge.ask(prompt), _bridge_loop)
+        return future.result(timeout=35)
+    except Exception as e:
+        print(f"[!] Direct MuseBridge error: {e}")
+        return None
+
 def query_gateway(audio_bytes, url=GATEWAY_URL):
     """
     Send audio bytes to Cloudflare Gateway for Whisper transcription,
-    route through the live Muse AI Hatch Bridge, and speak the reply via MeloTTS neural audio.
+    route directly through the live Muse AI Hatch Bridge, and speak the reply via MeloTTS neural audio.
     """
     try:
         start_t = time.time()
@@ -142,18 +173,24 @@ def query_gateway(audio_bytes, url=GATEWAY_URL):
             return
 
         print(f"\n> You said: \"{transcript}\"")
+        print("[*] Contacting your authentic Muse AI Jarvis over Noise XX protocol...")
 
-        # 2. Query your authentic Muse AI Jarvis assistant via the Noise XX bridge
+        # 2. Query your authentic Muse AI Jarvis assistant (Direct in-process)
         muse_connected = False
-        try:
-            m_resp = requests.post(MUSE_BRIDGE_URL, json={'prompt': transcript}, timeout=30)
-            if m_resp.status_code == 200:
-                reply = m_resp.json().get('reply', '')
-                muse_connected = True
-        except Exception:
-            pass
+        reply = get_muse_reply_direct(transcript)
+        if reply:
+            muse_connected = True
 
-        # Fallback to gateway reply if bridge is offline
+        # Fallback to HTTP bridge or gateway if direct call fails
+        if not reply:
+            try:
+                m_resp = requests.post(MUSE_BRIDGE_URL, json={'prompt': transcript}, timeout=30)
+                if m_resp.status_code == 200:
+                    reply = m_resp.json().get('reply', '')
+                    muse_connected = True
+            except Exception:
+                pass
+
         if not reply:
             reply = data.get('reply', '')
 
