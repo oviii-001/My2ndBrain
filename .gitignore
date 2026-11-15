@@ -4,6 +4,9 @@
 .env.*.local
 *.pem
 *.key
+.muse-state/
+__pycache__/
+*.pyc
 
 # PlatformIO & ESP32 Firmware
 .pio/

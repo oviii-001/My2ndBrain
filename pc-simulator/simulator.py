@@ -52,6 +52,8 @@ SAMPLE_RATE = 16000     # 16kHz standard for Whisper and INMP441
 CHANNELS = 1            # Mono
 CHUNK_SIZE = 1280       # 80ms chunks (1280 samples @ 16kHz) for openWakeWord
 GATEWAY_URL = "https://sidecar-cloud-gateway.ismamhasanovi.workers.dev/api/voice"
+MUSE_BRIDGE_URL = "http://localhost:8130/api/chat"
+TTS_GATEWAY_URL = "https://sidecar-cloud-gateway.ismamhasanovi.workers.dev/api/tts"
 
 
 def record_audio(duration_sec=4):
@@ -117,40 +119,72 @@ def speak_reply(text):
 
 
 def query_gateway(audio_bytes, url=GATEWAY_URL):
-    """Send audio bytes to Cloudflare Gateway and print/speak response."""
+    """
+    Send audio bytes to Cloudflare Gateway for Whisper transcription,
+    route through the live Muse AI Hatch Bridge, and speak the reply via MeloTTS neural audio.
+    """
     try:
         start_t = time.time()
         headers = {'Content-Type': 'audio/wav'}
+
+        # 1. Transcribe voice audio via Whisper on Cloudflare
         resp = requests.post(url, data=audio_bytes, headers=headers, timeout=25)
-        latency = round((time.time() - start_t) * 1000)
+        transcript = ""
+        reply = ""
+        audio_b64 = None
 
         if resp.status_code == 200:
             data = resp.json()
-            transcript = data.get('transcript', '')
+            transcript = data.get('transcript', '').strip()
+
+        if not transcript:
+            print("[!] Could not detect clear speech.")
+            return
+
+        print(f"\n> You said: \"{transcript}\"")
+
+        # 2. Query your authentic Muse AI Jarvis assistant via the Noise XX bridge
+        muse_connected = False
+        try:
+            m_resp = requests.post(MUSE_BRIDGE_URL, json={'prompt': transcript}, timeout=30)
+            if m_resp.status_code == 200:
+                reply = m_resp.json().get('reply', '')
+                muse_connected = True
+        except Exception:
+            pass
+
+        # Fallback to gateway reply if bridge is offline
+        if not reply:
             reply = data.get('reply', '')
-            audio_b64 = data.get('audio')
 
-            print(f"\n" + "-" * 50)
-            print(f"[JARVIS RESPONSE] ({latency}ms roundtrip)")
-            print(f"> You said: \"{transcript}\"")
-            print(f"> Jarvis:   \"{reply}\"")
-            print("-" * 50 + "\n")
+        latency = round((time.time() - start_t) * 1000)
+        source_label = "MUSE AI (HATCH NOISE XX)" if muse_connected else "CLOUDFLARE FALLBACK"
+        print(f"\n" + "-" * 55)
+        print(f"[JARVIS RESPONSE - {source_label}] ({latency}ms)")
+        print(f"> Jarvis: \"{reply}\"")
+        print("-" * 55 + "\n")
 
-            # Try high-fidelity neural audio from Cloudflare first
-            played = False
-            if audio_b64:
-                try:
-                    import base64
-                    wav_data = base64.b64decode(audio_b64)
-                    played = play_wav_bytes(wav_data)
-                except Exception:
-                    played = False
+        # 3. Synthesize natural speech audio via Cloudflare MeloTTS
+        try:
+            tts_resp = requests.post(TTS_GATEWAY_URL, json={'text': reply[:280]}, timeout=15)
+            if tts_resp.status_code == 200:
+                audio_b64 = tts_resp.json().get('audio')
+        except Exception:
+            pass
 
-            # Fallback to local TTS if neural audio not available
-            if not played:
-                speak_reply(reply)
-        else:
-            print(f"[!] Gateway error {resp.status_code}: {resp.text}")
+        # 4. Play audio through speakers
+        played = False
+        if audio_b64:
+            try:
+                import base64
+                wav_data = base64.b64decode(audio_b64)
+                played = play_wav_bytes(wav_data)
+            except Exception:
+                played = False
+
+        if not played:
+            speak_reply(reply)
+
     except requests.exceptions.ConnectionError:
         print(f"[!] Cannot connect to Cloudflare Gateway at {url}")
         print("    Check your internet connection or verify the gateway URL.")
