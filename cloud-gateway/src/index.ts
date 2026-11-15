@@ -45,6 +45,21 @@ async function queryMetaMuse(prompt: string, env: Env): Promise<string> {
   }
 }
 
+/**
+ * Generate speech audio from text using Cloudflare Workers AI MeloTTS.
+ */
+async function generateSpeech(text: string, env: Env): Promise<string | null> {
+  try {
+    // Truncate to first 300 characters for snappy voice response if text is lengthy
+    const cleanedText = text.slice(0, 300);
+    const ttsResult: any = await env.AI.run("@cf/myshell-ai/melotts", { prompt: cleanedText });
+    return ttsResult?.audio || null;
+  } catch (err) {
+    console.error("TTS generation error:", err);
+    return null;
+  }
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
@@ -54,7 +69,8 @@ export default {
       return new Response(JSON.stringify({
         status: "ok",
         service: "Project Sidecar Cloud Gateway",
-        whisperModel: "@cf/openai/whisper",
+        sttModel: "@cf/openai/whisper",
+        ttsModel: "@cf/myshell-ai/melotts",
         museConfigured: Boolean(env.META_C_USER && env.META_XS)
       }), {
         headers: { "Content-Type": "application/json" }
@@ -68,6 +84,23 @@ export default {
         const prompt = body?.message || "Hello Jarvis";
         const reply = await queryMetaMuse(prompt, env);
         return new Response(JSON.stringify({ prompt, reply }), {
+          headers: { "Content-Type": "application/json" }
+        });
+      } catch (err: any) {
+        return new Response(JSON.stringify({ error: err.message }), { status: 400 });
+      }
+    }
+
+    // Dedicated TTS endpoint
+    if (url.pathname === "/api/tts" && request.method === "POST") {
+      try {
+        const body: any = await request.json();
+        const text = body?.text || "System operational";
+        const audioBase64 = await generateSpeech(text, env);
+        if (!audioBase64) {
+          return new Response(JSON.stringify({ error: "TTS generation failed" }), { status: 500 });
+        }
+        return new Response(JSON.stringify({ text, audio: audioBase64 }), {
           headers: { "Content-Type": "application/json" }
         });
       } catch (err: any) {
@@ -95,17 +128,36 @@ export default {
           return new Response(JSON.stringify({
             transcript: "",
             reply: "I couldn't hear any clear speech.",
-            audioUrl: null
+            audio: null
           }), { headers: { "Content-Type": "application/json" } });
         }
 
         // 2. Query Meta Muse
         const replyText = await queryMetaMuse(transcript, env);
 
-        // 3. Return response payload
+        // 3. Generate Neural TTS audio
+        const audioBase64 = await generateSpeech(replyText, env);
+
+        // 4. Return audio either as binary WAV or JSON
+        if (request.headers.get("Accept")?.includes("audio/wav") && audioBase64) {
+          const binaryString = atob(audioBase64);
+          const bytes = new Uint8Array(binaryString.length);
+          for (let i = 0; i < binaryString.length; i++) {
+            bytes[i] = binaryString.charCodeAt(i);
+          }
+          return new Response(bytes, {
+            headers: {
+              "Content-Type": "audio/wav",
+              "X-Transcript": encodeURIComponent(transcript),
+              "X-Reply-Text": encodeURIComponent(replyText)
+            }
+          });
+        }
+
         return new Response(JSON.stringify({
           transcript,
-          reply: replyText
+          reply: replyText,
+          audio: audioBase64
         }), {
           headers: { "Content-Type": "application/json" }
         });

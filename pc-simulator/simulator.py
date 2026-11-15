@@ -77,6 +77,22 @@ def record_audio(duration_sec=4):
     return wav_io.read()
 
 
+def play_wav_bytes(wav_bytes):
+    """Play raw WAV bytes directly using sounddevice."""
+    try:
+        import io, wave
+        with wave.open(io.BytesIO(wav_bytes), 'rb') as wf:
+            fs = wf.getframerate()
+            frames = wf.readframes(wf.getnframes())
+            audio = np.frombuffer(frames, dtype=np.int16)
+            sd.play(audio, fs)
+            sd.wait()
+            return True
+    except Exception as e:
+        print(f"[!] Neural audio playback error: {e}")
+        return False
+
+
 def speak_reply(text):
     """Speak the reply using pyttsx3 or Windows SAPI."""
     if not text:
@@ -112,6 +128,7 @@ def query_gateway(audio_bytes, url=GATEWAY_URL):
             data = resp.json()
             transcript = data.get('transcript', '')
             reply = data.get('reply', '')
+            audio_b64 = data.get('audio')
 
             print(f"\n" + "-" * 50)
             print(f"[JARVIS RESPONSE] ({latency}ms roundtrip)")
@@ -119,8 +136,19 @@ def query_gateway(audio_bytes, url=GATEWAY_URL):
             print(f"> Jarvis:   \"{reply}\"")
             print("-" * 50 + "\n")
 
-            # Speak the reply aloud through laptop speaker or Bluetooth Echo Dot
-            speak_reply(reply)
+            # Try high-fidelity neural audio from Cloudflare first
+            played = False
+            if audio_b64:
+                try:
+                    import base64
+                    wav_data = base64.b64decode(audio_b64)
+                    played = play_wav_bytes(wav_data)
+                except Exception:
+                    played = False
+
+            # Fallback to local TTS if neural audio not available
+            if not played:
+                speak_reply(reply)
         else:
             print(f"[!] Gateway error {resp.status_code}: {resp.text}")
     except requests.exceptions.ConnectionError:

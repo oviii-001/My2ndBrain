@@ -64,9 +64,29 @@ You do **not** need to open or tamper with your Echo Dot.
 
 ---
 
-## 4. Hardware Verification Checklist (When you unpack tomorrow)
+## 4. Hardware Verification & 1-Click Flashing (Tomorrow)
 
-- [ ] Inspect the ESP32 board: ensure the micro-USB port is firmly mounted and pins are straight.
-- [ ] Connect the ESP32 to your PC via USB: the red power LED should glow solid.
-- [ ] Inspect the INMP441 board: ensure the tiny microphone hole in the center is clean and unobstructed.
-- [ ] Keep jumper wires firmly seated: loose jumper wires on I2S clock lines (SCK/WS) are the #1 cause of audio buzzing.
+### Step 1: Connect Hardware
+1. Connect INMP441 pins to ESP32 pins using Female-to-Female jumper wires as shown in Section 2.
+2. Connect the ESP32 to your PC using a **micro-USB / USB-C data cable** (ensure the cable supports data, not charge-only).
+3. The ESP32 power LED should illuminate solid red.
+
+### Step 2: Set Wi-Fi Credentials
+Open `firmware/include/config.h` and update:
+```cpp
+#define WIFI_SSID "Your_Home_WiFi"
+#define WIFI_PASSWORD "Your_WiFi_Password"
+```
+
+### Step 3: Flash the Firmware (One-Click)
+Run the auto-flasher script directly from the terminal or double-click `firmware/flash.bat`:
+```powershell
+.\firmware\flash.bat
+```
+The flasher automatically detects your ESP32 COM port and flashes the pre-compiled binary in ~15 seconds.
+
+### Step 4: Pair Echo Dot
+1. Say: *"Alexa, pair Bluetooth"* to put your Echo Dot in pairing mode.
+2. The ESP32 connects automatically as an A2DP Bluetooth transmitter.
+3. The blue onboard LED will glow solid when ready.
+4. Speak in your room — Jarvis is active!
