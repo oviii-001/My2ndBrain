@@ -27,7 +27,8 @@ except Exception:
 # Configuration
 SAMPLE_RATE = 16000  # 16kHz standard for Whisper and INMP441
 CHANNELS = 1         # Mono
-GATEWAY_URL = "http://127.0.0.1:8787/api/voice"  # Local wrangler dev or Cloudflare Worker URL
+# Live production Cloudflare Worker deployed via Cloudflare MCP
+GATEWAY_URL = "https://sidecar-cloud-gateway.ismamhasanovi.workers.dev/api/voice"
 
 def record_audio(duration_sec=4):
     """Record audio from laptop microphone as 16kHz 16-bit mono PCM."""
