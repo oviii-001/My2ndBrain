@@ -29,5 +29,8 @@ Thumbs.db
 # Tool caches
 graphify-out/
 .cache/
+models/
+*.onnx
+*.onnx.json
 *.mp3
 *.wav

@@ -10,6 +10,10 @@ binding = "AI"
 WAKE_WORD = "jarvis"
 TTS_SPEAKER = "angus" # Deepgram Aura: "angus" (British/Irish natural male), "orion" (deep calm male)
 
-# Optional Hollywood-grade voice clone via ElevenLabs (Paul Bettany Jarvis):
-# Set via: npx wrangler secret put ELEVENLABS_API_KEY
-# Set via: npx wrangler secret put ELEVENLABS_VOICE_ID
+# Hugging Face Spaces 24/7 Keep-Alive Cron (Prevents the 48-hour sleep trigger)
+[triggers]
+crons = ["0 0 * * *"] # Every 24 hours
+
+# Optional Hugging Face Free Space Endpoint & Token:
+# Set via: npx wrangler secret put HF_SPACE_URL
+# Set via: npx wrangler secret put HF_TOKEN

@@ -96,16 +96,59 @@ def play_wav_bytes(wav_bytes):
         return False
 
 
+_piper_voice = None
+
+def _get_piper_voice():
+    """Load the Hugging Face Piper JARVIS voice model if available."""
+    global _piper_voice
+    if _piper_voice is None:
+        try:
+            from pathlib import Path
+            from piper import PiperVoice
+            repo_root = Path(__file__).resolve().parent.parent
+            model_path = repo_root / "models" / "jarvis" / "jarvis-medium.onnx"
+            config_path = repo_root / "models" / "jarvis" / "jarvis-medium.onnx.json"
+            if model_path.exists() and config_path.exists():
+                _piper_voice = PiperVoice.load(str(model_path), str(config_path))
+            else:
+                _piper_voice = False
+        except Exception:
+            _piper_voice = False
+    return _piper_voice if _piper_voice is not False else None
+
+
 def speak_jarvis_neural(text):
     """
-    Speak using British male Iron Man Jarvis neural voice (en-GB-RyanNeural)
-    via edge-tts and pygame.mixer.
+    Speak using the authentic Hugging Face Paul Bettany JARVIS neural model (Piper),
+    with seamless fallback to Microsoft Neural (en-GB-RyanNeural) and SAPI.
     """
     if not text:
         return
 
-    _ensure_bridge()
+    # 1. Primary: Hugging Face Piper JARVIS (Paul Bettany Voice)
+    piper = _get_piper_voice()
+    if piper:
+        try:
+            import io
+            import wave
+            import pygame
+            wav_buf = io.BytesIO()
+            with wave.open(wav_buf, "wb") as wav:
+                piper.synthesize_wav(text[:300], wav)
+            data = wav_buf.getvalue()
+            if data:
+                if not pygame.mixer.get_init():
+                    pygame.mixer.init()
+                pygame.mixer.music.load(io.BytesIO(data))
+                pygame.mixer.music.play()
+                while pygame.mixer.music.get_busy():
+                    time.sleep(0.04)
+                return True
+        except Exception as e:
+            print(f"[!] Piper JARVIS voice notice ({e}), falling back...")
 
+    # 2. Secondary: Microsoft Neural Edge-TTS (en-GB-RyanNeural)
+    _ensure_bridge()
     try:
         import edge_tts
         import io
@@ -131,9 +174,9 @@ def speak_jarvis_neural(text):
                 time.sleep(0.04)
             return True
     except Exception as e:
-        print(f"[!] Jarvis neural voice notice ({e}), falling back...")
+        print(f"[!] Edge neural voice notice ({e}), falling back...")
 
-    # Fallback to local pyttsx3 or SAPI
+    # 3. Final Fallback: Local system speech engine
     if tts_engine:
         try:
             tts_engine.say(text)

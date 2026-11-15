@@ -4,6 +4,8 @@ export interface Env {
   HATCH_SESS?: string;
   HATCH_GW?: string;
   DATR?: string;
+  HF_TOKEN?: string; // Hugging Face Free User Token
+  HF_SPACE_URL?: string; // Free Hugging Face Space Endpoint (jgkawell/jarvis)
   ELEVENLABS_API_KEY?: string;
   ELEVENLABS_VOICE_ID?: string;
   TTS_SPEAKER?: string; // e.g. "angus" (British/Irish male), "orion" (deep calm male)
@@ -32,15 +34,68 @@ async function queryJarvisBrain(prompt: string, env: Env): Promise<string> {
 
 /**
  * Generate speech audio from text.
- * Tier 1: ElevenLabs Paul Bettany Jarvis voice clone (if ELEVENLABS_API_KEY configured).
- * Tier 2: Cloudflare Native Deepgram Aura-1 British/Irish natural male ('angus' / 'orion').
- * Tier 3: Cloudflare Deepgram Aura-2-en.
- * Tier 4: Edge fallback MeloTTS.
+ * Tier 1: Hugging Face Space Endpoint (Free jgkawell/jarvis Paul Bettany Piper model).
+ * Tier 2: Hugging Face Serverless Inference API (Free HF_TOKEN).
+ * Tier 3: ElevenLabs (Optional API key).
+ * Tier 4: Cloudflare Native Deepgram Aura-1 British/Irish natural male ('angus' / 'orion').
+ * Tier 5: Edge fallback MeloTTS.
  */
 async function generateSpeech(text: string, env: Env): Promise<string | null> {
   const cleanedText = text.slice(0, 350);
 
-  // 1. High-Fidelity Cloned Jarvis Voice via ElevenLabs (Paul Bettany) if configured
+  // 1. Hugging Face Space Free Endpoint (jgkawell/jarvis Paul Bettany model)
+  if (env.HF_SPACE_URL) {
+    try {
+      const targetUrl = env.HF_SPACE_URL.replace(/\/$/, "");
+      const resp = await fetch(`${targetUrl}/api/tts`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(env.HF_TOKEN ? { "Authorization": `Bearer ${env.HF_TOKEN}` } : {})
+        },
+        body: JSON.stringify({ text: cleanedText })
+      });
+      if (resp.ok) {
+        const arrayBuf = await resp.arrayBuffer();
+        const bytes = new Uint8Array(arrayBuf);
+        let binary = "";
+        for (let i = 0; i < bytes.byteLength; i++) {
+          binary += String.fromCharCode(bytes[i]);
+        }
+        return btoa(binary);
+      }
+    } catch (e) {
+      console.warn("Hugging Face Space TTS error, falling back:", e);
+    }
+  }
+
+  // 2. Hugging Face Free Serverless Inference API
+  if (env.HF_TOKEN) {
+    try {
+      const hfModel = "facebook/mms-tts-eng";
+      const resp = await fetch(`https://router.huggingface.co/hf-inference/models/${hfModel}`, {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${env.HF_TOKEN}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ inputs: cleanedText })
+      });
+      if (resp.ok) {
+        const arrayBuf = await resp.arrayBuffer();
+        const bytes = new Uint8Array(arrayBuf);
+        let binary = "";
+        for (let i = 0; i < bytes.byteLength; i++) {
+          binary += String.fromCharCode(bytes[i]);
+        }
+        return btoa(binary);
+      }
+    } catch (e) {
+      console.warn("Hugging Face Inference API error, falling back:", e);
+    }
+  }
+
+  // 3. Optional ElevenLabs Voice Clone (if configured)
   if (env.ELEVENLABS_API_KEY) {
     try {
       const voiceId = env.ELEVENLABS_VOICE_ID || "21m00Tcm4TlvDq8ikWAM";
@@ -76,7 +131,7 @@ async function generateSpeech(text: string, env: Env): Promise<string | null> {
     }
   }
 
-  // 2. Cloudflare Native Deepgram Aura-1 (Natural British/Male conversational voice)
+  // 4. Cloudflare Native Deepgram Aura-1 (Natural British/Male conversational voice)
   try {
     const speaker = env.TTS_SPEAKER || "angus"; // "angus" is British/Irish male, "orion" is deep calm male
     const auraResult: any = await env.AI.run("@cf/deepgram/aura-1", {
@@ -97,13 +152,13 @@ async function generateSpeech(text: string, env: Env): Promise<string | null> {
     console.warn("Deepgram Aura-1 error, attempting Aura-2-en:", err);
   }
 
-  // 3. Fallback: Deepgram Aura-2-en
+  // 5. Fallback: Deepgram Aura-2-en
   try {
     const aura2Result: any = await env.AI.run("@cf/deepgram/aura-2-en", { text: cleanedText });
     if (aura2Result?.audio) return aura2Result.audio;
   } catch {}
 
-  // 4. Edge Fallback: MeloTTS
+  // 6. Edge Fallback: MeloTTS
   try {
     const ttsResult: any = await env.AI.run("@cf/myshell-ai/melotts", { prompt: cleanedText });
     return ttsResult?.audio || null;
@@ -249,5 +304,17 @@ export default {
     }
 
     return new Response("Not Found", { status: 404 });
+  },
+
+  async scheduled(event: any, env: Env, ctx: any): Promise<void> {
+    // 24-hour keep-alive ping for Hugging Face Space so it never sleeps
+    if (env.HF_SPACE_URL) {
+      try {
+        await fetch(env.HF_SPACE_URL);
+        console.log("Hugging Face Space keep-alive ping sent.");
+      } catch (e) {
+        console.warn("Hugging Face Space keep-alive ping error:", e);
+      }
+    }
   }
 };
