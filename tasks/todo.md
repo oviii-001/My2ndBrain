@@ -1,20 +1,22 @@
 # Project Sidecar — Master Task Checklist
 
-## Phase 1: Repository & Cloudflare Gateway Setup
+## Phase 1A: PC Hardware Simulator & Cloudflare Gateway (Tonight)
 - [x] Create comprehensive architectural documentation and ADR (`docs/adr/0001-architecture-selection.md`)
 - [x] Create system architecture specification with Mermaid sequence diagrams (`docs/architecture.md`)
 - [x] Create hardware shopping and pinout wiring guide (`docs/hardware-guide.md`)
 - [x] Create technical research notes and feasibility dossier (`docs/research-notes.md`)
-- [x] Scaffold repository directory layout (`cloud-gateway/`, `firmware/`, `docs/`, `tasks/`)
+- [x] Scaffold repository directory layout (`cloud-gateway/`, `firmware/`, `pc-simulator/`, `docs/`, `tasks/`)
+- [x] Install Python audio simulation dependencies (`sounddevice`, `websockets`, `numpy`)
 - [ ] Initialize Cloudflare Worker project (`cloud-gateway/wrangler.toml`, `package.json`, `src/index.ts`)
 - [ ] Implement `@cf/openai/whisper` speech-to-text handler in Cloudflare Worker
 - [ ] Implement Meta MuseAI GraphQL client with session cookie authentication
 - [ ] Implement Neural TTS streaming audio generator
-- [ ] Test Cloudflare Worker locally and deploy to free Cloudflare edge
+- [ ] Build PC Mic Simulator (`pc-simulator/simulator.py`) to stream 16kHz audio from laptop mic
+- [ ] Test live voice conversation: Laptop Mic ➔ Cloudflare ➔ Meta MuseAI ➔ Echo Dot (via Bluetooth to PC)
 
-## Checkpoint 1: Cloudflare Gateway Operational
-- [ ] Gateway accepts audio buffer and returns synthesized voice response via curl/test script
-- [ ] Verified zero-cost execution within 10,000 daily free neurons
+## Checkpoint 1: Working Live Voice Jarvis on PC (Tonight)
+- [ ] Spoken question into laptop mic triggers Meta MuseAI query and audio response plays on speaker
+- [ ] Verified zero-cost execution within Cloudflare free tier
 
 ---
 

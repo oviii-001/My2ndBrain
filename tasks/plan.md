@@ -12,25 +12,32 @@ Project Sidecar builds a 24/7 ambient personal voice assistant ("Jarvis") using 
 
 ## Phase Breakdown
 
-### Phase 1: Cloudflare Gateway & Meta MuseAI Bridge (`/cloud-gateway`)
-Build and verify the serverless edge worker on Cloudflare before touching any hardware.
-- Initialize Cloudflare Workers project with Wrangler and TypeScript.
+### Phase 1A: PC Hardware Simulator & Cloud Gateway (Tonight - Zero Hardware Wait)
+Build and verify the full voice pipeline tonight on your laptop while simulating the ESP32:
+- Set up `pc-simulator/` script using `sounddevice` to capture laptop mic audio at 16kHz PCM (exact INMP441 format).
+- Initialize Cloudflare Worker project with Wrangler and TypeScript (`cloud-gateway/`).
 - Implement `@cf/openai/whisper` speech-to-text pipeline from audio buffers.
 - Implement Meta MuseAI GraphQL reverse client with persistent session cookies.
-- Implement Edge Neural TTS audio generator streaming MP3/PCM audio buffers.
-- Implement scheduled Cron Trigger (every 5 mins) for proactive notification polling.
+- Implement Edge Neural TTS audio generator streaming MP3/PCM audio buffers back to PC.
+- Test full two-way voice conversations with Meta Muse tonight using laptop mic + Echo Dot (via PC Bluetooth).
 
-### Phase 2: Hardware Acquisition & Workbench Setup
+### Phase 1B: Meta MuseAI Authentication & Integration
+- Extract session cookies (`c_user`, `xs`, `datr`) from `meta.ai`.
+- Configure encrypted secrets in Cloudflare Worker (`wrangler secret put`).
+- Validate Gmail and Instagram message querying through the gateway.
+
+### Phase 2: Physical ESP32 Hardware Acquisition & Bench Setup (Tomorrow)
 - Purchase ESP32 DevKit V1 and INMP441 I2S microphone module.
 - Wire INMP441 to ESP32 (GPIO 32, 25, 33, 3V3, GND).
 - Install PlatformIO / Arduino IDE with ESP32 board support packages.
 - Run hardware sanity tests (LED blink, I2S microphone serial plotter test).
 
 ### Phase 3: ESP32 Firmware Development (`/firmware`)
+- Replace PC simulator with ESP32 C++ firmware.
 - Implement I2S digital audio sampler with DMA buffers (16kHz, 16-bit PCM).
 - Implement Wi-Fi manager with auto-reconnect logic.
 - Implement secure WebSocket client (`wss://`) streaming audio chunks to Cloudflare.
-- Implement Bluetooth Classic A2DP Source (`ESP32-A2DP`) pairing with Echo Dot 4th Gen.
+- Implement Bluetooth Classic A2DP Source (`ESP32-A2DP`) pairing directly with Echo Dot 4th Gen.
 - Implement audio playback buffer receiving TTS stream and piping directly to Echo Dot.
 
 ### Phase 4: Integration, Latency Tuning & Proactive Jarvis Testing
