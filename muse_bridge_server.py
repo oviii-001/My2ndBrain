@@ -70,30 +70,35 @@ class MuseBridge:
             except TimeoutError:
                 pass
 
-            # 3. High-frequency polling (200ms interval, max 35 attempts = 7.0s)
+            # 3. High-frequency polling (300ms interval, up to 10s for full response generation)
             reply_text = None
             stable_count = 0
             last_partial = ""
             for _ in range(35):
-                await asyncio.sleep(0.20)
+                await asyncio.sleep(0.30)
                 hist = await client.history(limit=5)
                 events = hist.get("result", {}).get("chat_events", [])
                 for e in reversed(events):
                     if e.get("seq", 0) > last_seq and e.get("role") == "assistant":
                         text = (e.get("display_text") or "").strip()
-                        ready = e.get("display_text_ready")
-                        if ready is True and text:
+                        status = e.get("payload", {}).get("status") or e.get("status")
+
+                        # 1. Authentic completion status from Meta Muse AI
+                        if status == "completed" and text:
                             reply_text = text
                             break
+
+                        # 2. Text unchanged for at least 1.5s (5 consecutive polls)
                         if text:
                             if text == last_partial:
                                 stable_count += 1
-                                if stable_count >= 3:  # Text unchanged for 600ms
+                                if stable_count >= 5:
                                     reply_text = text
                                     break
                             else:
                                 last_partial = text
                                 stable_count = 0
+
                 if reply_text:
                     break
 
@@ -103,6 +108,11 @@ class MuseBridge:
                         reply_text = (e.get("display_text") or "").strip()
                         if reply_text:
                             break
+
+            if reply_text:
+                # Strip markdown asterisks/formatting for clean voice synthesis
+                import re
+                reply_text = re.sub(r'[*_#`]', '', reply_text).strip()
 
             return reply_text or "Systems nominal, Boss."
 

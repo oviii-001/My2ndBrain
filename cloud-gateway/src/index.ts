@@ -37,7 +37,7 @@ async function queryJarvisBrain(prompt: string, env: Env): Promise<string> {
  * Zero robotic fallbacks.
  */
 async function generateSpeech(text: string, env: Env): Promise<string | null> {
-  const cleanedText = text.slice(0, 350);
+  const cleanedText = text.replace(/[*_#`]/g, "").slice(0, 500);
   const hfSpaceUrl = env.HF_SPACE_URL || "https://ekc4-jarvis-tts.hf.space";
 
   try {

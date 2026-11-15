@@ -91,33 +91,57 @@ def play_wav_bytes(wav_bytes):
 def speak_jarvis_neural(text):
     """
     Speak using the authentic Hugging Face Paul Bettany JARVIS neural voice (Piper).
-    Direct neural synthesis with zero robotic fallbacks.
+    Direct neural synthesis with natural multi-sentence streaming for full replies.
     """
     if not text:
         return False
 
-    try:
-        import io
-        import pygame
-        resp = requests.post(
-            "https://ekc4-jarvis-tts.hf.space/speak",
-            json={"text": text[:350]},
-            timeout=15
-        )
-        if resp.status_code == 200 and len(resp.content) > 44:
-            if not pygame.mixer.get_init():
-                pygame.mixer.init()
-            pygame.mixer.music.load(io.BytesIO(resp.content))
-            pygame.mixer.music.play()
-            while pygame.mixer.music.get_busy():
-                time.sleep(0.04)
-            return True
-        else:
-            print(f"[!] Voice synthesis error: HTTP {resp.status_code}")
-            return False
-    except Exception as e:
-        print(f"[!] Voice audio playback error: {e}")
+    import io
+    import re
+    import pygame
+
+    # Clean markdown formatting symbols (**, _, #, `)
+    clean_text = re.sub(r'[*_#`]', '', text).strip()
+    if not clean_text:
         return False
+
+    # Split into natural sentences so long replies are never cut off
+    sentences = re.split(r'(?<=[.!?])\s+', clean_text)
+    chunks = []
+    curr = ""
+    for s in sentences:
+        if len(curr) + len(s) < 320:
+            curr = (curr + " " + s).strip()
+        else:
+            if curr:
+                chunks.append(curr)
+            curr = s
+    if curr:
+        chunks.append(curr)
+
+    if not chunks:
+        chunks = [clean_text]
+
+    for chunk in chunks:
+        try:
+            resp = requests.post(
+                "https://ekc4-jarvis-tts.hf.space/speak",
+                json={"text": chunk},
+                timeout=20
+            )
+            if resp.status_code == 200 and len(resp.content) > 44:
+                if not pygame.mixer.get_init():
+                    pygame.mixer.init()
+                pygame.mixer.music.load(io.BytesIO(resp.content))
+                pygame.mixer.music.play()
+                while pygame.mixer.music.get_busy():
+                    time.sleep(0.04)
+            else:
+                print(f"[!] Voice synthesis notice: HTTP {resp.status_code}")
+        except Exception as e:
+            print(f"[!] Voice audio playback error: {e}")
+
+    return True
 
 
 def speak_reply(text):
