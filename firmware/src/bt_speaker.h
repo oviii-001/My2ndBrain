@@ -15,6 +15,7 @@ public:
     BtSpeaker();
     bool begin(const char* deviceName = BT_SINK_NAME);
     bool isConnected();
+    bool isPlaying();
     void playChime(ChimeType chime);
     void playAudioBuffer(const int16_t* pcmData, size_t sampleCount);
     void tick();

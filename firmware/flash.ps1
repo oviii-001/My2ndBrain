@@ -4,19 +4,52 @@ Write-Host "  Project Sidecar — ESP32 Jarvis Auto-Flasher" -ForegroundColor Cy
 Write-Host "==========================================================" -ForegroundColor Cyan
 
 # 1. Locate esptool
-$esptool = "C:\Users\USERAS\AppData\Roaming\Python\Python314\Scripts\esptool.exe"
-if (-not (Test-Path $esptool)) {
-    $esptoolCmd = Get-Command esptool -ErrorAction SilentlyContinue
-    if ($esptoolCmd) {
-        $esptool = $esptoolCmd.Source
+$usePythonEsptool = $false
+$esptool = "esptool"
+$esptoolCmd = Get-Command esptool -ErrorAction SilentlyContinue
+if ($esptoolCmd) {
+    $esptool = $esptoolCmd.Source
+} else {
+    $testPy = & python -m esptool version 2>$null
+    if ($LASTEXITCODE -eq 0) {
+        $usePythonEsptool = $true
     } else {
-        Write-Host "ERROR: esptool.exe not found in PATH." -ForegroundColor Red
-        Write-Host "Run: python -m pip install esptool" -ForegroundColor Yellow
-        exit 1
+        $fallback = "C:\Users\USERAS\AppData\Roaming\Python\Python314\Scripts\esptool.exe"
+        if (Test-Path $fallback) {
+            $esptool = $fallback
+        } else {
+            Write-Host "ERROR: esptool not found." -ForegroundColor Red
+            Write-Host "Run: python -m pip install esptool" -ForegroundColor Yellow
+            exit 1
+        }
     }
 }
 
-# 2. Locate built binaries
+# 2. Check Wi-Fi configuration
+$configPath = "$PSScriptRoot\include\config.h"
+if (Test-Path $configPath) {
+    $configContent = Get-Content $configPath -Raw
+    if ($configContent -match 'WIFI_SSID\s+"YOUR_WIFI_SSID"') {
+        Write-Host "`n[!] Wi-Fi credentials not configured yet." -ForegroundColor Yellow
+        $wifiSsid = Read-Host "Enter your 2.4GHz Wi-Fi Name (SSID)"
+        $wifiPass = Read-Host "Enter your Wi-Fi Password"
+        if ($wifiSsid) {
+            $configContent = $configContent -replace 'WIFI_SSID "YOUR_WIFI_SSID"', "WIFI_SSID `"$wifiSsid`""
+            $configContent = $configContent -replace 'WIFI_PASSWORD "YOUR_WIFI_PASSWORD"', "WIFI_PASSWORD `"$wifiPass`""
+            Set-Content -Path $configPath -Value $configContent -Encoding utf8
+            Write-Host "[+] Configured Wi-Fi credentials in include/config.h" -ForegroundColor Green
+            Write-Host "[*] Compiling firmware with your Wi-Fi..." -ForegroundColor Cyan
+            & python -m platformio run -d "$PSScriptRoot"
+            if ($LASTEXITCODE -ne 0) {
+                Write-Host "Compilation failed." -ForegroundColor Red
+                exit 1
+            }
+            Copy-Item "$PSScriptRoot\.pio\build\esp32dev\firmware.bin" "$PSScriptRoot\bin\firmware.bin" -Force
+        }
+    }
+}
+
+# 3. Locate built binaries
 $releaseDir = "$PSScriptRoot\bin"
 $buildDir = "$PSScriptRoot\.pio\build\esp32dev"
 
@@ -32,7 +65,7 @@ if (Test-Path "$releaseDir\firmware.bin") {
     Write-Host "Using built binaries from $buildDir" -ForegroundColor Green
 } else {
     Write-Host "Binaries not found. Compiling with PlatformIO..." -ForegroundColor Yellow
-    & "C:\Users\USERAS\AppData\Roaming\Python\Python314\Scripts\pio.exe" run -d "$PSScriptRoot"
+    & python -m platformio run -d "$PSScriptRoot"
     $bootloader = "$buildDir\bootloader.bin"
     $partitions = "$buildDir\partitions.bin"
     $firmware = "$buildDir\firmware.bin"
@@ -56,11 +89,26 @@ Write-Host "Detected ESP32 on port: $targetPort" -ForegroundColor Green
 # 4. Flash binary with esptool
 Write-Host "`nFlashing firmware to ESP32 at 921600 baud..." -ForegroundColor Cyan
 
-& $esptool --chip esp32 --port $targetPort --baud 921600 --before default_reset --after hard_reset write_flash -z `
-    --flash_mode dio --flash_freq 40m --flash_size detect `
-    0x1000 "$bootloader" `
-    0x8000 "$partitions" `
-    0x10000 "$firmware"
+$flashArgs = @(
+    "--chip", "esp32",
+    "--port", $targetPort,
+    "--baud", "921600",
+    "--before", "default_reset",
+    "--after", "hard_reset",
+    "write_flash", "-z",
+    "--flash_mode", "dio",
+    "--flash_freq", "40m",
+    "--flash_size", "detect",
+    "0x1000", $bootloader,
+    "0x8000", $partitions,
+    "0x10000", $firmware
+)
+
+if ($usePythonEsptool) {
+    & python -m esptool @flashArgs
+} else {
+    & $esptool @flashArgs
+}
 
 if ($LASTEXITCODE -eq 0) {
     Write-Host "`n==========================================================" -ForegroundColor Green

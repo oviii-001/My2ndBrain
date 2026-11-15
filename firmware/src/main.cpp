@@ -144,9 +144,24 @@ void processSpeechAudio() {
 
     if (resp.success) {
         Serial.println("[System] Conversation turn successful!");
-        g_btSpeaker.playChime(CHIME_SUCCESS);
         g_currentState = STATE_SPEAKING;
-        delay(1500); // Allow chime / response playback
+
+        if (resp.audioData && resp.audioLen > 44) {
+            // Skip 44-byte WAV header and stream synthesized voice PCM samples to Echo Dot
+            const int16_t* pcmSamples = (const int16_t*)(resp.audioData + 44);
+            size_t sampleCount = (resp.audioLen - 44) / sizeof(int16_t);
+            Serial.printf("[System] Streaming %u speech samples to Echo Dot speaker...\n", (unsigned int)sampleCount);
+            g_btSpeaker.playAudioBuffer(pcmSamples, sampleCount);
+
+            // Wait for audio playback to complete
+            while (g_btSpeaker.isPlaying()) {
+                delay(20);
+                g_btSpeaker.tick();
+            }
+        } else {
+            g_btSpeaker.playChime(CHIME_SUCCESS);
+            delay(1200);
+        }
     } else {
         Serial.println("[System] Voice query failed or no speech detected.");
         g_btSpeaker.playChime(CHIME_ERROR);

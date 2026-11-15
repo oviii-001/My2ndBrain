@@ -66,6 +66,10 @@ CloudResponse CloudGateway::sendVoiceAudio(const uint8_t* pcmData, size_t pcmByt
     }
 
     http.addHeader("Content-Type", "audio/wav");
+    http.addHeader("Accept", "audio/wav");
+
+    const char* headerKeys[] = {"X-Transcript", "X-Reply-Text", "Content-Type"};
+    http.collectHeaders(headerKeys, 3);
 
     // Prepend 44-byte WAV header
     const size_t WAV_HEADER_SIZE = 44;
@@ -89,18 +93,38 @@ CloudResponse CloudGateway::sendVoiceAudio(const uint8_t* pcmData, size_t pcmByt
     Serial.printf("[Cloud] Gateway responded HTTP %d in %lu ms\n", httpCode, elapsed);
 
     if (httpCode == HTTP_CODE_OK) {
-        String jsonPayload = http.getString();
-        JsonDocument doc;
-        DeserializationError error = deserializeJson(doc, jsonPayload);
-
-        if (!error) {
+        String contentType = http.header("Content-Type");
+        if (contentType.indexOf("audio") >= 0) {
             resp.success = true;
-            resp.transcript = doc["transcript"].as<String>();
-            resp.reply = doc["reply"].as<String>();
+            resp.transcript = http.header("X-Transcript");
+            resp.reply = http.header("X-Reply-Text");
+
+            int len = http.getSize();
+            if (len > 0) {
+                resp.audioData = (uint8_t*)malloc(len);
+                if (resp.audioData) {
+                    WiFiClient* stream = http.getStreamPtr();
+                    int bytesRead = stream->readBytes(resp.audioData, len);
+                    resp.audioLen = bytesRead;
+                    Serial.printf("[Cloud] Downloaded %d bytes of speech audio\n", bytesRead);
+                }
+            }
             Serial.printf("[Cloud] STT Transcript: \"%s\"\n", resp.transcript.c_str());
             Serial.printf("[Cloud] Muse Response:  \"%s\"\n", resp.reply.c_str());
         } else {
-            Serial.printf("[Cloud] JSON parsing failed: %s\n", error.c_str());
+            String jsonPayload = http.getString();
+            JsonDocument doc;
+            DeserializationError error = deserializeJson(doc, jsonPayload);
+
+            if (!error) {
+                resp.success = true;
+                resp.transcript = doc["transcript"].as<String>();
+                resp.reply = doc["reply"].as<String>();
+                Serial.printf("[Cloud] STT Transcript: \"%s\"\n", resp.transcript.c_str());
+                Serial.printf("[Cloud] Muse Response:  \"%s\"\n", resp.reply.c_str());
+            } else {
+                Serial.printf("[Cloud] JSON parsing failed: %s\n", error.c_str());
+            }
         }
     } else {
         Serial.printf("[Cloud] HTTP Error: %d - %s\n", httpCode, http.errorToString(httpCode).c_str());

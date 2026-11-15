@@ -28,6 +28,10 @@ bool BtSpeaker::isConnected() {
     return m_a2dpSource.is_connected();
 }
 
+bool BtSpeaker::isPlaying() {
+    return s_isPlaying;
+}
+
 int32_t BtSpeaker::getSoundData(uint8_t* data, int32_t len) {
     if (!data || len <= 0) return 0;
 
