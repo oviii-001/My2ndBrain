@@ -4,6 +4,9 @@ export interface Env {
   HATCH_SESS?: string;
   HATCH_GW?: string;
   DATR?: string;
+  ELEVENLABS_API_KEY?: string;
+  ELEVENLABS_VOICE_ID?: string;
+  TTS_SPEAKER?: string; // e.g. "angus" (British/Irish male), "orion" (deep calm male)
 }
 
 /**
@@ -28,33 +31,84 @@ async function queryJarvisBrain(prompt: string, env: Env): Promise<string> {
 }
 
 /**
- * Generate speech audio from text using Cloudflare Workers AI Deepgram Aura / MeloTTS.
+ * Generate speech audio from text.
+ * Tier 1: ElevenLabs Paul Bettany Jarvis voice clone (if ELEVENLABS_API_KEY configured).
+ * Tier 2: Cloudflare Native Deepgram Aura-1 British/Irish natural male ('angus' / 'orion').
+ * Tier 3: Cloudflare Deepgram Aura-2-en.
+ * Tier 4: Edge fallback MeloTTS.
  */
 async function generateSpeech(text: string, env: Env): Promise<string | null> {
-  const cleanedText = text.slice(0, 300);
-  // 1. Try Deepgram Aura-2 English (natural conversational tone)
+  const cleanedText = text.slice(0, 350);
+
+  // 1. High-Fidelity Cloned Jarvis Voice via ElevenLabs (Paul Bettany) if configured
+  if (env.ELEVENLABS_API_KEY) {
+    try {
+      const voiceId = env.ELEVENLABS_VOICE_ID || "21m00Tcm4TlvDq8ikWAM";
+      const resp = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
+        method: "POST",
+        headers: {
+          "xi-api-key": env.ELEVENLABS_API_KEY,
+          "Content-Type": "application/json",
+          "Accept": "audio/mpeg"
+        },
+        body: JSON.stringify({
+          text: cleanedText,
+          model_id: "eleven_turbo_v2_5",
+          voice_settings: {
+            stability: 0.72,
+            similarity_boost: 0.85,
+            style: 0.15,
+            use_speaker_boost: true
+          }
+        })
+      });
+      if (resp.ok) {
+        const arrayBuf = await resp.arrayBuffer();
+        const bytes = new Uint8Array(arrayBuf);
+        let binary = "";
+        for (let i = 0; i < bytes.byteLength; i++) {
+          binary += String.fromCharCode(bytes[i]);
+        }
+        return btoa(binary);
+      }
+    } catch (e) {
+      console.warn("ElevenLabs TTS error, falling back to edge neural voice:", e);
+    }
+  }
+
+  // 2. Cloudflare Native Deepgram Aura-1 (Natural British/Male conversational voice)
   try {
-    const auraResult: any = await env.AI.run("@cf/deepgram/aura-2-en", { text: cleanedText });
+    const speaker = env.TTS_SPEAKER || "angus"; // "angus" is British/Irish male, "orion" is deep calm male
+    const auraResult: any = await env.AI.run("@cf/deepgram/aura-1", {
+      text: cleanedText,
+      speaker: speaker
+    });
     if (auraResult?.audio) return auraResult.audio;
     if (auraResult instanceof ReadableStream || auraResult instanceof ArrayBuffer) {
       const buf = auraResult instanceof ArrayBuffer ? auraResult : await new Response(auraResult).arrayBuffer();
-      let binary = "";
       const bytes = new Uint8Array(buf);
+      let binary = "";
       for (let i = 0; i < bytes.byteLength; i++) {
         binary += String.fromCharCode(bytes[i]);
       }
       return btoa(binary);
     }
-  } catch {
-    // Fallback to MeloTTS
+  } catch (err) {
+    console.warn("Deepgram Aura-1 error, attempting Aura-2-en:", err);
   }
 
-  // 2. MeloTTS fallback
+  // 3. Fallback: Deepgram Aura-2-en
+  try {
+    const aura2Result: any = await env.AI.run("@cf/deepgram/aura-2-en", { text: cleanedText });
+    if (aura2Result?.audio) return aura2Result.audio;
+  } catch {}
+
+  // 4. Edge Fallback: MeloTTS
   try {
     const ttsResult: any = await env.AI.run("@cf/myshell-ai/melotts", { prompt: cleanedText });
     return ttsResult?.audio || null;
   } catch (err) {
-    console.error("TTS generation error:", err);
+    console.error("MeloTTS fallback failed:", err);
     return null;
   }
 }
@@ -67,11 +121,12 @@ export default {
     if (url.pathname === "/" || url.pathname === "/health") {
       return new Response(JSON.stringify({
         status: "ok",
-        service: "Project Sidecar Cloud Gateway",
-        sttModel: "@cf/openai/whisper",
-        ttsModel: "@cf/myshell-ai/melotts",
+        service: "My2ndBrain Cloud Gateway",
+        sttModels: ["@cf/deepgram/nova-3", "@cf/openai/whisper"],
+        ttsEngine: env.ELEVENLABS_API_KEY ? "ElevenLabs (Paul Bettany Jarvis)" : "Deepgram Aura (British Male)",
+        ttsSpeaker: env.TTS_SPEAKER || "angus",
         fallbackLLM: "@cf/meta/llama-3.1-8b-instruct-fp8",
-        museConfigured: Boolean((env.HATCH_SESS && env.HATCH_GW) || (env.META_C_USER && env.META_XS))
+        museConfigured: Boolean(env.HATCH_SESS && env.HATCH_GW)
       }), {
         headers: { "Content-Type": "application/json" }
       });

@@ -8,8 +8,8 @@ binding = "AI"
 
 [vars]
 WAKE_WORD = "jarvis"
+TTS_SPEAKER = "angus" # Deepgram Aura: "angus" (British/Irish natural male), "orion" (deep calm male)
 
-# Secrets to set via `npx wrangler secret put`:
-# - META_C_USER
-# - META_XS
-# - META_DATR
+# Optional Hollywood-grade voice clone via ElevenLabs (Paul Bettany Jarvis):
+# Set via: npx wrangler secret put ELEVENLABS_API_KEY
+# Set via: npx wrangler secret put ELEVENLABS_VOICE_ID
