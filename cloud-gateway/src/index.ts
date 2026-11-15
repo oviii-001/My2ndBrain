@@ -2,22 +2,15 @@ export interface Env {
   AI: any;
   WAKE_WORD?: string;
   MUSE_BRIDGE_URL?: string; // 24/7 Meta Muse AI Bridge endpoint
-  HATCH_SESS?: string;
-  HATCH_GW?: string;
-  DATR?: string;
   HF_TOKEN?: string; // Hugging Face Free User Token
   HF_SPACE_URL?: string; // Free Hugging Face Space Endpoint (jgkawell/jarvis)
-  ELEVENLABS_API_KEY?: string;
-  ELEVENLABS_VOICE_ID?: string;
-  TTS_SPEAKER?: string; // e.g. "angus" (British/Irish male), "orion" (deep calm male)
 }
 
 /**
- * Primary Brain: Meta Muse AI (Personal Account over Hatch Noise_XX Protocol).
- * Dispatches voice queries to your authentic Muse AI assistant.
+ * Dedicated Brain: Meta Muse AI (Personal Account over Hatch Noise_XX Protocol).
+ * Dispatches voice queries directly to your authentic Muse AI assistant with zero LLM fallbacks.
  */
 async function queryJarvisBrain(prompt: string, env: Env): Promise<string> {
-  // 1. Query your authentic Meta Muse AI personal assistant
   if (env.MUSE_BRIDGE_URL) {
     try {
       const targetUrl = env.MUSE_BRIDGE_URL.replace(/\/$/, "");
@@ -31,41 +24,22 @@ async function queryJarvisBrain(prompt: string, env: Env): Promise<string> {
         if (data?.reply) return data.reply;
       }
     } catch (err) {
-      console.warn("Muse AI Bridge connection error, using Workers AI:", err);
+      console.error("Muse AI Bridge connection error:", err);
+      return "Unable to connect to Meta Muse AI, sir.";
     }
   }
 
-  // 2. Cloudflare Workers AI edge model
-  try {
-    const aiResp: any = await env.AI.run("@cf/meta/llama-3.1-8b-instruct-fp8", {
-      messages: [
-        {
-          role: "system",
-          content: "You are Jarvis, a brilliant, concise, loyal AI personal assistant living in the user's room. Respond in 1-2 conversational sentences suitable for speech audio output. Do not use markdown, emojis, asterisks, or bullet points."
-        },
-        { role: "user", content: prompt }
-      ]
-    });
-    return aiResp?.response?.trim() || "I am online and ready to assist you, sir.";
-  } catch (err: any) {
-    console.error("Workers AI error:", err);
-    return `Systems operational, sir. Standing by.`;
-  }
+  return "Meta Muse AI Bridge is offline, sir. Please start muse_bridge_server.";
 }
 
 /**
- * Generate speech audio from text.
- * Tier 1: Hugging Face Space Endpoint (Free jgkawell/jarvis Paul Bettany Piper model).
- * Tier 2: Hugging Face Serverless Inference API (Free HF_TOKEN).
- * Tier 3: ElevenLabs (Optional API key).
- * Tier 4: Cloudflare Native Deepgram Aura-1 British/Irish natural male ('angus' / 'orion').
- * Tier 5: Edge fallback MeloTTS.
+ * Dedicated Voice: Hugging Face Piper JARVIS (Paul Bettany Voice).
+ * Zero robotic fallbacks.
  */
 async function generateSpeech(text: string, env: Env): Promise<string | null> {
   const cleanedText = text.slice(0, 350);
-
-  // 1. Hugging Face Space Free Endpoint (jgkawell/jarvis Paul Bettany Iron Man model)
   const hfSpaceUrl = env.HF_SPACE_URL || "https://ekc4-jarvis-tts.hf.space";
+
   try {
     const targetUrl = hfSpaceUrl.replace(/\/$/, "");
     let resp = await fetch(`${targetUrl}/speak`, {
@@ -76,6 +50,7 @@ async function generateSpeech(text: string, env: Env): Promise<string | null> {
       },
       body: JSON.stringify({ text: cleanedText })
     });
+
     if (!resp.ok) {
       resp = await fetch(`${targetUrl}/api/tts`, {
         method: "POST",
@@ -86,6 +61,7 @@ async function generateSpeech(text: string, env: Env): Promise<string | null> {
         body: JSON.stringify({ text: cleanedText })
       });
     }
+
     if (resp.ok) {
       const arrayBuf = await resp.arrayBuffer();
       const bytes = new Uint8Array(arrayBuf);
@@ -96,97 +72,8 @@ async function generateSpeech(text: string, env: Env): Promise<string | null> {
       return btoa(binary);
     }
   } catch (e) {
-    console.warn("Hugging Face Space TTS error:", e);
+    console.error("Hugging Face Space TTS error:", e);
   }
-
-  // 2. Hugging Face Free Serverless Inference API
-  if (env.HF_TOKEN) {
-    try {
-      const hfModel = "facebook/mms-tts-eng";
-      const resp = await fetch(`https://router.huggingface.co/hf-inference/models/${hfModel}`, {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${env.HF_TOKEN}`,
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({ inputs: cleanedText })
-      });
-      if (resp.ok) {
-        const arrayBuf = await resp.arrayBuffer();
-        const bytes = new Uint8Array(arrayBuf);
-        let binary = "";
-        for (let i = 0; i < bytes.byteLength; i++) {
-          binary += String.fromCharCode(bytes[i]);
-        }
-        return btoa(binary);
-      }
-    } catch (e) {
-      console.warn("Hugging Face Inference API error, falling back:", e);
-    }
-  }
-
-  // 3. Optional ElevenLabs Voice Clone (if configured)
-  if (env.ELEVENLABS_API_KEY) {
-    try {
-      const voiceId = env.ELEVENLABS_VOICE_ID || "21m00Tcm4TlvDq8ikWAM";
-      const resp = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
-        method: "POST",
-        headers: {
-          "xi-api-key": env.ELEVENLABS_API_KEY,
-          "Content-Type": "application/json",
-          "Accept": "audio/mpeg"
-        },
-        body: JSON.stringify({
-          text: cleanedText,
-          model_id: "eleven_turbo_v2_5",
-          voice_settings: {
-            stability: 0.72,
-            similarity_boost: 0.85,
-            style: 0.15,
-            use_speaker_boost: true
-          }
-        })
-      });
-      if (resp.ok) {
-        const arrayBuf = await resp.arrayBuffer();
-        const bytes = new Uint8Array(arrayBuf);
-        let binary = "";
-        for (let i = 0; i < bytes.byteLength; i++) {
-          binary += String.fromCharCode(bytes[i]);
-        }
-        return btoa(binary);
-      }
-    } catch (e) {
-      console.warn("ElevenLabs TTS error, falling back to edge neural voice:", e);
-    }
-  }
-
-  // 4. Cloudflare Native Deepgram Aura-1 (Natural British Male Jarvis voice)
-  try {
-    const speaker = env.TTS_SPEAKER || "angus"; // "angus" is British/Irish male, "orion" is deep calm male
-    const auraResult: any = await env.AI.run("@cf/deepgram/aura-1", {
-      text: cleanedText,
-      speaker: speaker
-    });
-    if (auraResult?.audio) return auraResult.audio;
-    if (auraResult instanceof ReadableStream || auraResult instanceof ArrayBuffer) {
-      const buf = auraResult instanceof ArrayBuffer ? auraResult : await new Response(auraResult).arrayBuffer();
-      const bytes = new Uint8Array(buf);
-      let binary = "";
-      for (let i = 0; i < bytes.byteLength; i++) {
-        binary += String.fromCharCode(bytes[i]);
-      }
-      return btoa(binary);
-    }
-  } catch (err) {
-    console.warn("Deepgram Aura-1 error:", err);
-  }
-
-  // 5. Deepgram Aura-2-en (Alternative Deepgram Aura checkpoint)
-  try {
-    const aura2Result: any = await env.AI.run("@cf/deepgram/aura-2-en", { text: cleanedText });
-    if (aura2Result?.audio) return aura2Result.audio;
-  } catch {}
 
   return null;
 }
@@ -200,11 +87,10 @@ export default {
       return new Response(JSON.stringify({
         status: "ok",
         service: "My2ndBrain Cloud Gateway",
-        sttModels: ["@cf/deepgram/nova-3", "@cf/openai/whisper"],
+        sttModel: "@cf/openai/whisper",
         ttsEngine: "Hugging Face Piper JARVIS (Paul Bettany)",
         hfSpaceUrl: env.HF_SPACE_URL || "https://ekc4-jarvis-tts.hf.space",
-        ttsSpeaker: env.TTS_SPEAKER || "angus",
-        brain: env.MUSE_BRIDGE_URL ? "Meta Muse AI (Authentic Account)" : "@cf/meta/llama-3.1-8b-instruct-fp8",
+        brain: "Meta Muse AI (Hatch Noise_XX Protocol)",
         museBridgeConfigured: Boolean(env.MUSE_BRIDGE_URL)
       }), {
         headers: { "Content-Type": "application/json" }
@@ -242,7 +128,7 @@ export default {
       }
     }
 
-    // Speech-to-Text Endpoint (Deepgram Nova-3 ultra-fast STT with Whisper fallback)
+    // Dedicated Speech-to-Text Endpoint (OpenAI Whisper)
     if (url.pathname === "/api/stt" && request.method === "POST") {
       try {
         const audioBuffer = await request.arrayBuffer();
@@ -250,23 +136,10 @@ export default {
           return new Response(JSON.stringify({ error: "Empty audio payload" }), { status: 400 });
         }
         const audioBytes = [...new Uint8Array(audioBuffer)];
-        let transcript = "";
-        let engine = "deepgram-nova-3";
+        const whisperResult: any = await env.AI.run("@cf/openai/whisper", { audio: audioBytes });
+        const transcript = whisperResult?.text?.trim() || "";
 
-        try {
-          const novaResult: any = await env.AI.run("@cf/deepgram/nova-3", { audio: audioBytes });
-          transcript = novaResult?.result?.text?.trim() || novaResult?.text?.trim() || "";
-        } catch {
-          // Fallback to Whisper
-        }
-
-        if (!transcript) {
-          engine = "openai-whisper";
-          const whisperResult: any = await env.AI.run("@cf/openai/whisper", { audio: audioBytes });
-          transcript = whisperResult?.text?.trim() || "";
-        }
-
-        return new Response(JSON.stringify({ transcript, engine }), {
+        return new Response(JSON.stringify({ transcript, engine: "openai-whisper" }), {
           headers: { "Content-Type": "application/json" }
         });
       } catch (err: any) {

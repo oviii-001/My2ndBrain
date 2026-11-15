@@ -9,7 +9,6 @@ binding = "AI"
 [vars]
 WAKE_WORD = "jarvis"
 HF_SPACE_URL = "https://ekc4-jarvis-tts.hf.space"
-TTS_SPEAKER = "angus" # Deepgram Aura: "angus" (British/Irish natural male), "orion" (deep calm male)
 
 # Hugging Face Spaces 24/7 Keep-Alive Cron (Prevents the 48-hour sleep trigger)
 [triggers]

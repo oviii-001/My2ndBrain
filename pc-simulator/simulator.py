@@ -17,16 +17,8 @@ import numpy as np
 try:
     import sounddevice as sd
 except ImportError:
-    print("[!] sounddevice missing. Run: pip install sounddevice numpy requests pyttsx3")
+    print("[!] sounddevice missing. Run: pip install sounddevice numpy requests")
     sys.exit(1)
-
-# Text-to-Speech
-try:
-    import pyttsx3
-    tts_engine = pyttsx3.init()
-    tts_engine.setProperty('rate', 175)
-except Exception:
-    tts_engine = None
 
 # Wake Word Engine (openWakeWord)
 try:
@@ -96,41 +88,22 @@ def play_wav_bytes(wav_bytes):
         return False
 
 
-_piper_voice = None
-
-def _get_piper_voice():
-    """Load the Hugging Face Piper JARVIS voice model if available."""
-    global _piper_voice
-    if _piper_voice is None:
-        try:
-            from pathlib import Path
-            from piper import PiperVoice
-            repo_root = Path(__file__).resolve().parent.parent
-            model_path = repo_root / "models" / "jarvis" / "jarvis-medium.onnx"
-            config_path = repo_root / "models" / "jarvis" / "jarvis-medium.onnx.json"
-            if model_path.exists() and config_path.exists():
-                _piper_voice = PiperVoice.load(str(model_path), str(config_path))
-            else:
-                _piper_voice = False
-        except Exception:
-            _piper_voice = False
-    return _piper_voice if _piper_voice is not False else None
-
-
 def speak_jarvis_neural(text):
     """
-    Speak using the authentic Hugging Face Paul Bettany JARVIS neural model (Piper),
-    with seamless fallback to Microsoft Neural (en-GB-RyanNeural) and SAPI.
+    Speak using the authentic Hugging Face Paul Bettany JARVIS neural voice (Piper).
+    Direct neural synthesis with zero robotic fallbacks.
     """
     if not text:
-        return
+        return False
 
-    # 1. Primary: Live Hugging Face Piper JARVIS (Paul Bettany Voice)
     try:
-        import requests
         import io
         import pygame
-        resp = requests.post("https://ekc4-jarvis-tts.hf.space/speak", json={"text": text[:350]}, timeout=8)
+        resp = requests.post(
+            "https://ekc4-jarvis-tts.hf.space/speak",
+            json={"text": text[:350]},
+            timeout=15
+        )
         if resp.status_code == 200 and len(resp.content) > 44:
             if not pygame.mixer.get_init():
                 pygame.mixer.init()
@@ -139,70 +112,12 @@ def speak_jarvis_neural(text):
             while pygame.mixer.music.get_busy():
                 time.sleep(0.04)
             return True
+        else:
+            print(f"[!] Voice synthesis error: HTTP {resp.status_code}")
+            return False
     except Exception as e:
-        print(f"[!] Hugging Face Piper voice notice ({e}), falling back to Edge Neural...")
-
-    # 2. Local Piper JARVIS (if downloaded)
-    piper = _get_piper_voice()
-    if piper:
-        try:
-            import io
-            import wave
-            import pygame
-            wav_buf = io.BytesIO()
-            with wave.open(wav_buf, "wb") as wav:
-                piper.synthesize_wav(text[:300], wav)
-            data = wav_buf.getvalue()
-            if data:
-                if not pygame.mixer.get_init():
-                    pygame.mixer.init()
-                pygame.mixer.music.load(io.BytesIO(data))
-                pygame.mixer.music.play()
-                while pygame.mixer.music.get_busy():
-                    time.sleep(0.04)
-                return True
-        except Exception as e:
-            print(f"[!] Piper JARVIS voice notice ({e}), falling back...")
-
-    # 2. Secondary: Microsoft Neural Edge-TTS (en-GB-RyanNeural)
-    _ensure_bridge()
-    try:
-        import edge_tts
-        import io
-        import pygame
-
-        async def _gen():
-            comm = edge_tts.Communicate(text[:350], 'en-GB-RyanNeural', pitch='-1Hz', rate='+2%')
-            buf = bytearray()
-            async for chunk in comm.stream():
-                if chunk['type'] == 'audio':
-                    buf.extend(chunk['data'])
-            return buf
-
-        fut = asyncio.run_coroutine_threadsafe(_gen(), _bridge_loop)
-        mp3_bytes = fut.result(timeout=10)
-
-        if mp3_bytes:
-            if not pygame.mixer.get_init():
-                pygame.mixer.init()
-            pygame.mixer.music.load(io.BytesIO(mp3_bytes))
-            pygame.mixer.music.play()
-            while pygame.mixer.music.get_busy():
-                time.sleep(0.04)
-            return True
-    except Exception as e:
-        print(f"[!] Edge neural voice notice ({e}), falling back...")
-
-    # 3. Final Fallback: Local system speech engine
-    if tts_engine:
-        try:
-            tts_engine.say(text)
-            tts_engine.runAndWait()
-            return True
-        except Exception:
-            pass
-
-    return False
+        print(f"[!] Voice audio playback error: {e}")
+        return False
 
 
 def speak_reply(text):
@@ -245,72 +160,57 @@ def get_muse_reply_direct(prompt):
 
 def query_gateway(audio_bytes, url=GATEWAY_URL):
     """
-    Ultra-fast pipeline:
-    1. Whisper STT transcription via Cloudflare (~1s)
-    2. Direct Noise XX query to live Muse AI Jarvis (~2s)
-    3. MeloTTS neural audio synthesis via Cloudflare (~1s)
+    Dedicated direct pipeline (ZERO fallbacks):
+    1. Whisper STT transcription via Cloudflare
+    2. Direct Noise_XX query to live Meta Muse AI
+    3. Hugging Face Piper JARVIS neural audio synthesis
     """
     try:
         start_t = time.time()
         headers = {'Content-Type': 'audio/wav'}
 
-        # 1. Fast Whisper Transcription (uses dedicated /api/stt)
+        # 1. Whisper STT Transcription
         t_stt = time.time()
         stt_resp = requests.post(STT_URL, data=audio_bytes, headers=headers, timeout=15)
-        transcript = ""
-        reply = ""
-        audio_b64 = None
+        if stt_resp.status_code != 200:
+            print(f"[!] STT error: HTTP {stt_resp.status_code}")
+            return
 
-        if stt_resp.status_code == 200:
-            transcript = stt_resp.json().get('transcript', '').strip()
-        else:
-            # Fallback to general voice endpoint
-            resp = requests.post(url, data=audio_bytes, headers=headers, timeout=25)
-            if resp.status_code == 200:
-                transcript = resp.json().get('transcript', '').strip()
-
+        transcript = stt_resp.json().get('transcript', '').strip()
         if not transcript:
             print("[!] Could not detect clear speech.")
             return
 
         print(f"\n> You said: \"{transcript}\" ({round((time.time() - t_stt)*1000)}ms)")
-        print("[*] Streaming to Muse AI Jarvis...")
+        print("[*] Dispatching directly to authentic Meta Muse AI...")
 
-        # 2. Query your authentic Muse AI Jarvis assistant (Direct in-process)
-        t_muse = time.time()
-        muse_connected = False
+        # 2. Query authentic Meta Muse AI over Noise_XX
         reply = get_muse_reply_direct(transcript)
-        if reply:
-            muse_connected = True
-
-        # Fallback to HTTP bridge or gateway if direct call fails
         if not reply:
             try:
                 m_resp = requests.post(MUSE_BRIDGE_URL, json={'prompt': transcript}, timeout=15)
                 if m_resp.status_code == 200:
                     reply = m_resp.json().get('reply', '')
-                    muse_connected = True
             except Exception:
                 pass
 
         if not reply:
-            reply = "I'm listening, Boss."
+            print("[!] Failed to receive response from Meta Muse AI.")
+            return
 
         latency = round((time.time() - start_t) * 1000)
-        source_label = "MUSE AI (HATCH NOISE XX)" if muse_connected else "CLOUDFLARE FALLBACK"
         print(f"\n" + "-" * 55)
-        print(f"[JARVIS RESPONSE - {source_label}] ({latency}ms roundtrip)")
+        print(f"[JARVIS RESPONSE - META MUSE AI] ({latency}ms roundtrip)")
         print(f"> Jarvis: \"{reply}\"")
         print("-" * 55 + "\n")
 
-        # 3. Speak reply using authentic British Male Jarvis Neural Voice (en-GB-RyanNeural)
+        # 3. Speak reply using authentic Paul Bettany Jarvis Voice
         speak_jarvis_neural(reply)
 
     except requests.exceptions.ConnectionError:
         print(f"[!] Cannot connect to Cloudflare Gateway at {url}")
-        print("    Check your internet connection or verify the gateway URL.")
     except Exception as e:
-        print(f"[!] Request error: {e}")
+        print(f"[!] Pipeline error: {e}")
 
 
 def run_wake_word_loop(threshold=0.5, duration_sec=4, url=GATEWAY_URL):
