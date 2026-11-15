@@ -12,7 +12,7 @@ export interface Env {
 }
 
 /**
- * Fallback Jarvis persona via Cloudflare Workers AI Meta Llama 3.1.
+ * Dedicated Jarvis persona via Cloudflare Workers AI Meta Llama 3.1.
  */
 async function queryJarvisBrain(prompt: string, env: Env): Promise<string> {
   try {
@@ -131,7 +131,7 @@ async function generateSpeech(text: string, env: Env): Promise<string | null> {
     }
   }
 
-  // 4. Cloudflare Native Deepgram Aura-1 (Natural British/Male conversational voice)
+  // 4. Cloudflare Native Deepgram Aura-1 (Natural British Male Jarvis voice)
   try {
     const speaker = env.TTS_SPEAKER || "angus"; // "angus" is British/Irish male, "orion" is deep calm male
     const auraResult: any = await env.AI.run("@cf/deepgram/aura-1", {
@@ -149,23 +149,16 @@ async function generateSpeech(text: string, env: Env): Promise<string | null> {
       return btoa(binary);
     }
   } catch (err) {
-    console.warn("Deepgram Aura-1 error, attempting Aura-2-en:", err);
+    console.warn("Deepgram Aura-1 error:", err);
   }
 
-  // 5. Fallback: Deepgram Aura-2-en
+  // 5. Deepgram Aura-2-en (Alternative Deepgram Aura checkpoint)
   try {
     const aura2Result: any = await env.AI.run("@cf/deepgram/aura-2-en", { text: cleanedText });
     if (aura2Result?.audio) return aura2Result.audio;
   } catch {}
 
-  // 6. Edge Fallback: MeloTTS
-  try {
-    const ttsResult: any = await env.AI.run("@cf/myshell-ai/melotts", { prompt: cleanedText });
-    return ttsResult?.audio || null;
-  } catch (err) {
-    console.error("MeloTTS fallback failed:", err);
-    return null;
-  }
+  return null;
 }
 
 export default {
@@ -180,7 +173,7 @@ export default {
         sttModels: ["@cf/deepgram/nova-3", "@cf/openai/whisper"],
         ttsEngine: env.ELEVENLABS_API_KEY ? "ElevenLabs (Paul Bettany Jarvis)" : "Deepgram Aura (British Male)",
         ttsSpeaker: env.TTS_SPEAKER || "angus",
-        fallbackLLM: "@cf/meta/llama-3.1-8b-instruct-fp8",
+        brainLLM: "@cf/meta/llama-3.1-8b-instruct-fp8",
         museConfigured: Boolean(env.HATCH_SESS && env.HATCH_GW)
       }), {
         headers: { "Content-Type": "application/json" }
