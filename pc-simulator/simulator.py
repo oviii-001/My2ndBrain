@@ -127,7 +127,7 @@ def speak_jarvis_neural(text):
             resp = requests.post(
                 "https://ekc4-jarvis-tts.hf.space/speak",
                 json={"text": chunk},
-                timeout=20
+                timeout=30
             )
             if resp.status_code == 200 and len(resp.content) > 44:
                 if not pygame.mixer.get_init():
@@ -177,7 +177,7 @@ def get_muse_reply_direct(prompt):
     try:
         _ensure_bridge()
         future = asyncio.run_coroutine_threadsafe(_in_process_bridge.ask(prompt), _bridge_loop)
-        return future.result(timeout=20)
+        return future.result(timeout=30)
     except Exception as e:
         print(f"[!] Direct MuseBridge error: {e}")
         return None
@@ -192,12 +192,35 @@ def query_gateway(audio_bytes, url=GATEWAY_URL):
     try:
         start_t = time.time()
         headers = {'Content-Type': 'audio/wav'}
+        audio_kb = len(audio_bytes) // 1024
 
-        # 1. Whisper STT Transcription
+        # 1. Whisper STT Transcription with resilience
         t_stt = time.time()
-        stt_resp = requests.post(STT_URL, data=audio_bytes, headers=headers, timeout=15)
-        if stt_resp.status_code != 200:
-            print(f"[!] STT error: HTTP {stt_resp.status_code}")
+        print(f"[*] Transcribing audio ({audio_kb} KB) via Cloudflare Whisper STT...")
+
+        stt_resp = None
+        for attempt in range(2):
+            try:
+                stt_resp = requests.post(STT_URL, data=audio_bytes, headers=headers, timeout=35)
+                if stt_resp.status_code == 200:
+                    break
+                print(f"[!] STT HTTP {stt_resp.status_code}, retrying...")
+                time.sleep(1)
+            except requests.exceptions.Timeout:
+                if attempt == 0:
+                    print("[*] Cloudflare Whisper edge queue delay, retrying upload...")
+                    time.sleep(1)
+                else:
+                    raise
+            except requests.exceptions.ConnectionError:
+                if attempt == 0:
+                    print("[*] Connection glitch, retrying upload...")
+                    time.sleep(1)
+                else:
+                    raise
+
+        if not stt_resp or stt_resp.status_code != 200:
+            print(f"[!] STT error: HTTP {stt_resp.status_code if stt_resp else 'None'}")
             return
 
         transcript = stt_resp.json().get('transcript', '').strip()
@@ -212,7 +235,7 @@ def query_gateway(audio_bytes, url=GATEWAY_URL):
         reply = get_muse_reply_direct(transcript)
         if not reply:
             try:
-                m_resp = requests.post(MUSE_BRIDGE_URL, json={'prompt': transcript}, timeout=15)
+                m_resp = requests.post(MUSE_BRIDGE_URL, json={'prompt': transcript}, timeout=25)
                 if m_resp.status_code == 200:
                     reply = m_resp.json().get('reply', '')
             except Exception:
@@ -399,9 +422,18 @@ def main():
         test_hardware()
         return
 
-    # Pre-warm Muse AI Noise XX WebSocket connection in background thread
-    print("[*] Pre-warming connection to Muse AI Jarvis...")
+    # Pre-warm Muse AI Noise XX WebSocket and cloud services in background thread
+    print("[*] Pre-warming connection to Muse AI Jarvis and cloud services...")
     _ensure_bridge()
+
+    def _prewarm_all():
+        try:
+            requests.get("https://sidecar-cloud-gateway.ismamhasanovi.workers.dev/health", timeout=6)
+            requests.get("https://ekc4-jarvis-tts.hf.space/health", timeout=6)
+        except Exception:
+            pass
+
+    threading.Thread(target=_prewarm_all, daemon=True).start()
 
     if args.manual or not WAKE_WORD_AVAILABLE:
         if not WAKE_WORD_AVAILABLE and not args.manual:
