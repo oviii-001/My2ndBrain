@@ -1,58 +1,111 @@
-# Implementation Plan: Project Sidecar (ESP32 + Cloudflare + Meta MuseAI)
+# Implementation Plan: My2ndBrain (Ambient Voice Satellite for Meta Muse AI)
 
-## Overview
-Project Sidecar builds a 24/7 ambient personal voice assistant ("Jarvis") using an ESP32 DevKit V1, an INMP441 I2S microphone, an idle Amazon Echo Dot (4th Gen) as a Bluetooth speaker, and a serverless Cloudflare Workers AI bridge communicating with Meta MuseAI at zero monthly cost ($0.00/mo).
-
-## Architecture Decisions
-- **ADR 0001:** ESP32 DevKit V1 as hardware satellite + Cloudflare Workers AI (`@cf/openai/whisper`) + Meta MuseAI internal GraphQL bridge + Bluetooth A2DP to Echo Dot 4th Gen.
-- **Protocol:** Real-time bi-directional WebSocket connection between ESP32 and Cloudflare Worker.
-- **Zero-Cloud-Cost Hard Cap:** Built strictly within Cloudflare's permanent 10,000 Neurons/day free tier (no credit card required).
+> **Version:** 2.0.0  
+> **Status:** Active Execution  
+> **Scope:** High-fidelity British male voice (Iron Man JARVIS), next-gen STT (Deepgram Nova-3 + Whisper), over-engineering cleanup, and ESP32 physical station deployment.
 
 ---
 
-## Phase Breakdown
+## 1. System Overview & Dependency Graph
 
-### Phase 1A: PC Hardware Simulator & Cloud Gateway (Tonight - Zero Hardware Wait)
-Build and verify the full voice pipeline tonight on your laptop while simulating the ESP32:
-- Set up `pc-simulator/` script using `sounddevice` to capture laptop mic audio at 16kHz PCM (exact INMP441 format).
-- Initialize Cloudflare Worker project with Wrangler and TypeScript (`cloud-gateway/`).
-- Implement `@cf/openai/whisper` speech-to-text pipeline from audio buffers.
-- Implement Meta MuseAI GraphQL reverse client with persistent session cookies.
-- Implement Edge Neural TTS audio generator streaming MP3/PCM audio buffers back to PC.
-- Test full two-way voice conversations with Meta Muse tonight using laptop mic + Echo Dot (via PC Bluetooth).
-
-### Phase 1B: Meta MuseAI Authentication & Integration
-- Extract session cookies (`c_user`, `xs`, `datr`) from `meta.ai`.
-- Configure encrypted secrets in Cloudflare Worker (`wrangler secret put`).
-- Validate Gmail and Instagram message querying through the gateway.
-
-### Phase 2: Physical ESP32 Hardware Acquisition & Bench Setup (Tomorrow)
-- Purchase ESP32 DevKit V1 and INMP441 I2S microphone module.
-- Wire INMP441 to ESP32 (GPIO 32, 25, 33, 3V3, GND).
-- Install PlatformIO / Arduino IDE with ESP32 board support packages.
-- Run hardware sanity tests (LED blink, I2S microphone serial plotter test).
-
-### Phase 3: ESP32 Firmware Development (`/firmware`)
-- Replace PC simulator with ESP32 C++ firmware.
-- Implement I2S digital audio sampler with DMA buffers (16kHz, 16-bit PCM).
-- Implement Wi-Fi manager with auto-reconnect logic.
-- Implement secure WebSocket client (`wss://`) streaming audio chunks to Cloudflare.
-- Implement Bluetooth Classic A2DP Source (`ESP32-A2DP`) pairing directly with Echo Dot 4th Gen.
-- Implement audio playback buffer receiving TTS stream and piping directly to Echo Dot.
-
-### Phase 4: Integration, Latency Tuning & Proactive Jarvis Testing
-- End-to-end voice query test: "Hey Jarvis" ➔ Whisper ➔ Meta MuseAI ➔ Echo Dot speaker.
-- Latency profiling: Ensure end-to-end voice turnaround is under 1.0 second.
-- Proactive event push test: Verify MuseAI reminders trigger automatic Echo Dot announcements.
-- Stress testing & 24/7 stability verification.
+```
+[INMP441 Microphone (ESP32 / PC)]
+           │
+           ▼
+[Edge STT: Deepgram Nova-3 / Whisper]
+           │
+           ▼
+[Hatch Noise_XX WebSocket Client] ──► [Meta Muse AI Brain (Jarvis)]
+           │
+           ▼
+[Neural TTS: en-GB-RyanNeural (British Male)]
+           │
+           ▼
+[Echo Dot 4th Gen (A2DP Bluetooth)]
+```
 
 ---
 
-## Risks and Mitigations
+## 2. Vertical Implementation Tasks
 
-| Risk | Impact | Mitigation Strategy |
-| :--- | :--- | :--- |
-| **Meta session cookie expiration** | Medium | Gateway returns a clear alert if session expires; script provided to refresh cookies via browser. |
-| **I2S clock jitter / audio buzz** | Low | Dedicated hardware DMA buffers on ESP32; short, well-seated jumper wires (<10cm). |
-| **Bluetooth audio packet drop** | Low | Pre-allocated ring buffer in ESP32 heap; fixed 44.1kHz SBC audio stream. |
-| **Cloudflare daily quota exhaustion** | Low | Hard cap at 10,000 Neurons/day (~4 hours of speech/day); fails gracefully without charging. |
+### Task 1: Authentic British Male Jarvis Voice (Iron Man Style)
+
+**Description:**  
+Upgrade audio synthesis from robotic SAPI/pyttsx3 to a studio-grade British male neural voice matching Paul Bettany's performance in Marvel's Iron Man. Leverages Microsoft Neural `en-GB-RyanNeural` with negative pitch shift (`-1Hz`) and slight pace acceleration (`+2%`) via `edge-tts` and in-memory streaming through `pygame.mixer`.
+
+**Acceptance criteria:**
+- [x] Given an assistant response text, when synthesized, it plays in under 1.5 seconds without writing temporary audio files to disk.
+- [x] Audio renders with an articulate, calm, polite British male accent.
+- [x] Graceful fallback to local engine if network connection drops.
+
+**Verification:**
+- [x] Automated test: `python -c "import edge_tts, pygame; ..."` successfully streams and loads in memory.
+- [x] Manual check: Run `python pc-simulator/simulator.py --manual` and verify auditory response fidelity.
+
+**Dependencies:** None  
+**Files touched:**
+- `pc-simulator/simulator.py`
+- `README.md`
+
+---
+
+### Task 2: Dual-Engine High-Speed STT (Deepgram Nova-3 + Whisper Fallback)
+
+**Description:**  
+Upgrade the Cloudflare edge Speech-to-Text pipeline from standard Whisper to a dual-engine topology. Evaluates incoming 16kHz PCM audio against `@cf/deepgram/nova-3` for sub-300ms transcription with superior ambient noise filtering, falling back seamlessly to `@cf/openai/whisper`.
+
+**Acceptance criteria:**
+- [x] Given spoken voice audio with background noise, STT transcribes in under 500ms.
+- [x] Returns clean text and engine metadata (`engine: "deepgram-nova-3" | "openai-whisper"`).
+- [x] Handles empty payloads and audio decoding edge-cases gracefully.
+
+**Verification:**
+- [x] Manual check: `POST /api/stt` with WAV payload returns `200 OK` with valid transcript.
+
+**Dependencies:** Task 1  
+**Files touched:**
+- `cloud-gateway/src/index.ts`
+- `pc-simulator/simulator.py`
+
+---
+
+### Task 3: Over-Engineering & Bloat Reduction (Ponytail Cleanup)
+
+**Description:**  
+Audit and prune unused abstractions across the repository: eliminate dead GraphQL POST attempts to `meta.ai` in `cloud-gateway/src/index.ts`, remove redundant cookie header formatting, replace PowerShell subprocess speech synthesis calls with native in-memory playback, and consolidate duplicate audio decoding pipelines.
+
+**Acceptance criteria:**
+- [x] Dead code in `cloud-gateway/src/index.ts` removed (-40+ lines).
+- [x] Monolithic redundant `/api/voice` calls bypassed in favor of dedicated `/api/stt`.
+- [x] Working tree clean and free of leftover debug dumps.
+
+**Verification:**
+- [x] Git diff audit confirming net reduction in lines of code without regression.
+- [x] `simulator.py` runs with zero warnings.
+
+**Dependencies:** Task 1, Task 2  
+**Files touched:**
+- `cloud-gateway/src/index.ts`
+- `pc-simulator/simulator.py`
+
+---
+
+### Task 4: ESP32 Hardware Flashing & Room Deployment
+
+**Description:**  
+Connect physical ESP32 DevKit V1 and INMP441 I2S microphone module via Dupont wires, flash production firmware with `firmware/flash.bat`, pair with Amazon Echo Dot (4th Gen) over Bluetooth A2DP, and verify standalone room operation without a PC.
+
+**Acceptance criteria:**
+- [ ] ESP32 boots and connects to local 2.4GHz Wi-Fi in under 5 seconds.
+- [ ] INMP441 captures clean 16kHz audio over I2S DMA.
+- [ ] Echo Dot announces connection and plays assistant responses cleanly.
+
+**Verification:**
+- [ ] PlatformIO build test: RAM < 25%, Flash < 55%.
+- [ ] One-click Windows flasher connects to serial COM port and uploads partitions + firmware.
+
+**Dependencies:** Task 1, Task 2, Task 3  
+**Files touched:**
+- `firmware/src/main.cpp`
+- `firmware/include/config.h`
+- `firmware/flash.bat`

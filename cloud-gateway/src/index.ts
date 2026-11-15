@@ -4,54 +4,12 @@ export interface Env {
   HATCH_SESS?: string;
   HATCH_GW?: string;
   DATR?: string;
-  META_C_USER?: string;
-  META_XS?: string;
-  META_DATR?: string;
 }
 
 /**
- * Query Meta MuseAI session or fallback to Cloudflare Workers AI Meta Llama 3.1 Jarvis.
+ * Fallback Jarvis persona via Cloudflare Workers AI Meta Llama 3.1.
  */
 async function queryJarvisBrain(prompt: string, env: Env): Promise<string> {
-  let cookieHeader = "";
-  if (env.HATCH_SESS && env.HATCH_GW) {
-    cookieHeader = `hatch_sess=${env.HATCH_SESS}; hatch_gw=${env.HATCH_GW}; datr=${env.DATR || ""};`;
-  } else if (env.META_C_USER && env.META_XS) {
-    cookieHeader = `c_user=${env.META_C_USER}; xs=${env.META_XS}; datr=${env.META_DATR || ""};`;
-  }
-
-  // 1. If session cookies are provided, attempt cloud bridge
-  if (cookieHeader) {
-    try {
-      const response = await fetch("https://www.meta.ai/api/graphql", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Cookie": cookieHeader,
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
-          "Origin": "https://www.meta.ai",
-          "Referer": "https://www.meta.ai/"
-        },
-        body: JSON.stringify({
-          doc_id: "7884841804968846",
-          variables: {
-            message: prompt,
-            session_id: "sidecar-ambient-" + Date.now()
-          }
-        })
-      });
-
-      if (response.ok) {
-        const data: any = await response.json();
-        const text = data?.data?.meta_ai_chat?.message?.text;
-        if (text) return text;
-      }
-    } catch (err) {
-      console.warn("Session bridge query skipped/failed:", err);
-    }
-  }
-
-  // 2. High-speed local Jarvis persona via Cloudflare Workers AI Meta Llama 3.1 (2026 FP8 model)
   try {
     const aiResp: any = await env.AI.run("@cf/meta/llama-3.1-8b-instruct-fp8", {
       messages: [
@@ -70,11 +28,29 @@ async function queryJarvisBrain(prompt: string, env: Env): Promise<string> {
 }
 
 /**
- * Generate speech audio from text using Cloudflare Workers AI MeloTTS.
+ * Generate speech audio from text using Cloudflare Workers AI Deepgram Aura / MeloTTS.
  */
 async function generateSpeech(text: string, env: Env): Promise<string | null> {
+  const cleanedText = text.slice(0, 300);
+  // 1. Try Deepgram Aura-2 English (natural conversational tone)
   try {
-    const cleanedText = text.slice(0, 300);
+    const auraResult: any = await env.AI.run("@cf/deepgram/aura-2-en", { text: cleanedText });
+    if (auraResult?.audio) return auraResult.audio;
+    if (auraResult instanceof ReadableStream || auraResult instanceof ArrayBuffer) {
+      const buf = auraResult instanceof ArrayBuffer ? auraResult : await new Response(auraResult).arrayBuffer();
+      let binary = "";
+      const bytes = new Uint8Array(buf);
+      for (let i = 0; i < bytes.byteLength; i++) {
+        binary += String.fromCharCode(bytes[i]);
+      }
+      return btoa(binary);
+    }
+  } catch {
+    // Fallback to MeloTTS
+  }
+
+  // 2. MeloTTS fallback
+  try {
     const ttsResult: any = await env.AI.run("@cf/myshell-ai/melotts", { prompt: cleanedText });
     return ttsResult?.audio || null;
   } catch (err) {
@@ -132,19 +108,31 @@ export default {
       }
     }
 
-    // Speech-to-Text ONLY Endpoint (fast transcription, no redundant LLM/TTS)
+    // Speech-to-Text Endpoint (Deepgram Nova-3 ultra-fast STT with Whisper fallback)
     if (url.pathname === "/api/stt" && request.method === "POST") {
       try {
         const audioBuffer = await request.arrayBuffer();
         if (!audioBuffer || audioBuffer.byteLength === 0) {
           return new Response(JSON.stringify({ error: "Empty audio payload" }), { status: 400 });
         }
-        const input = {
-          audio: [...new Uint8Array(audioBuffer)]
-        };
-        const sttResult: any = await env.AI.run("@cf/openai/whisper", input);
-        const transcript = sttResult?.text?.trim() || "";
-        return new Response(JSON.stringify({ transcript }), {
+        const audioBytes = [...new Uint8Array(audioBuffer)];
+        let transcript = "";
+        let engine = "deepgram-nova-3";
+
+        try {
+          const novaResult: any = await env.AI.run("@cf/deepgram/nova-3", { audio: audioBytes });
+          transcript = novaResult?.result?.text?.trim() || novaResult?.text?.trim() || "";
+        } catch {
+          // Fallback to Whisper
+        }
+
+        if (!transcript) {
+          engine = "openai-whisper";
+          const whisperResult: any = await env.AI.run("@cf/openai/whisper", { audio: audioBytes });
+          transcript = whisperResult?.text?.trim() || "";
+        }
+
+        return new Response(JSON.stringify({ transcript, engine }), {
           headers: { "Content-Type": "application/json" }
         });
       } catch (err: any) {

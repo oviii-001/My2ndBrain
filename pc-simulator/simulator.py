@@ -96,27 +96,58 @@ def play_wav_bytes(wav_bytes):
         return False
 
 
-def speak_reply(text):
-    """Speak the reply using pyttsx3 or Windows SAPI."""
+def speak_jarvis_neural(text):
+    """
+    Speak using British male Iron Man Jarvis neural voice (en-GB-RyanNeural)
+    via edge-tts and pygame.mixer.
+    """
     if not text:
         return
 
+    _ensure_bridge()
+
+    try:
+        import edge_tts
+        import io
+        import pygame
+
+        async def _gen():
+            comm = edge_tts.Communicate(text[:350], 'en-GB-RyanNeural', pitch='-1Hz', rate='+2%')
+            buf = bytearray()
+            async for chunk in comm.stream():
+                if chunk['type'] == 'audio':
+                    buf.extend(chunk['data'])
+            return buf
+
+        fut = asyncio.run_coroutine_threadsafe(_gen(), _bridge_loop)
+        mp3_bytes = fut.result(timeout=10)
+
+        if mp3_bytes:
+            if not pygame.mixer.get_init():
+                pygame.mixer.init()
+            pygame.mixer.music.load(io.BytesIO(mp3_bytes))
+            pygame.mixer.music.play()
+            while pygame.mixer.music.get_busy():
+                time.sleep(0.04)
+            return True
+    except Exception as e:
+        print(f"[!] Jarvis neural voice notice ({e}), falling back...")
+
+    # Fallback to local pyttsx3 or SAPI
     if tts_engine:
         try:
             tts_engine.say(text)
             tts_engine.runAndWait()
-            return
+            return True
         except Exception:
             pass
 
-    # Fallback to PowerShell speech synthesis
-    try:
-        import subprocess
-        clean_text = text.replace('"', '').replace("'", "")
-        cmd = f'powershell -Command "Add-Type -AssemblyName System.Speech; (New-Object System.Speech.Synthesis.SpeechSynthesizer).Speak(\'{clean_text}\')"'
-        subprocess.run(cmd, shell=True)
-    except Exception as e:
-        print(f"[!] Speech synthesis error: {e}")
+    return False
+
+
+def speak_reply(text):
+    """Legacy alias redirecting to Jarvis neural voice."""
+    return speak_jarvis_neural(text)
 
 
 import asyncio
@@ -212,26 +243,8 @@ def query_gateway(audio_bytes, url=GATEWAY_URL):
         print(f"> Jarvis: \"{reply}\"")
         print("-" * 55 + "\n")
 
-        # 3. Synthesize natural speech audio via Cloudflare MeloTTS
-        try:
-            tts_resp = requests.post(TTS_GATEWAY_URL, json={'text': reply[:280]}, timeout=15)
-            if tts_resp.status_code == 200:
-                audio_b64 = tts_resp.json().get('audio')
-        except Exception:
-            pass
-
-        # 4. Play audio through speakers
-        played = False
-        if audio_b64:
-            try:
-                import base64
-                wav_data = base64.b64decode(audio_b64)
-                played = play_wav_bytes(wav_data)
-            except Exception:
-                played = False
-
-        if not played:
-            speak_reply(reply)
+        # 3. Speak reply using authentic British Male Jarvis Neural Voice (en-GB-RyanNeural)
+        speak_jarvis_neural(reply)
 
     except requests.exceptions.ConnectionError:
         print(f"[!] Cannot connect to Cloudflare Gateway at {url}")
