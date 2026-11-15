@@ -43,11 +43,20 @@ async function queryJarvisBrain(prompt: string, env: Env): Promise<string> {
 async function generateSpeech(text: string, env: Env): Promise<string | null> {
   const cleanedText = text.slice(0, 350);
 
-  // 1. Hugging Face Space Free Endpoint (jgkawell/jarvis Paul Bettany model)
-  if (env.HF_SPACE_URL) {
-    try {
-      const targetUrl = env.HF_SPACE_URL.replace(/\/$/, "");
-      const resp = await fetch(`${targetUrl}/api/tts`, {
+  // 1. Hugging Face Space Free Endpoint (jgkawell/jarvis Paul Bettany Iron Man model)
+  const hfSpaceUrl = env.HF_SPACE_URL || "https://ekc4-jarvis-tts.hf.space";
+  try {
+    const targetUrl = hfSpaceUrl.replace(/\/$/, "");
+    let resp = await fetch(`${targetUrl}/speak`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(env.HF_TOKEN ? { "Authorization": `Bearer ${env.HF_TOKEN}` } : {})
+      },
+      body: JSON.stringify({ text: cleanedText })
+    });
+    if (!resp.ok) {
+      resp = await fetch(`${targetUrl}/api/tts`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -55,18 +64,18 @@ async function generateSpeech(text: string, env: Env): Promise<string | null> {
         },
         body: JSON.stringify({ text: cleanedText })
       });
-      if (resp.ok) {
-        const arrayBuf = await resp.arrayBuffer();
-        const bytes = new Uint8Array(arrayBuf);
-        let binary = "";
-        for (let i = 0; i < bytes.byteLength; i++) {
-          binary += String.fromCharCode(bytes[i]);
-        }
-        return btoa(binary);
-      }
-    } catch (e) {
-      console.warn("Hugging Face Space TTS error, falling back:", e);
     }
+    if (resp.ok) {
+      const arrayBuf = await resp.arrayBuffer();
+      const bytes = new Uint8Array(arrayBuf);
+      let binary = "";
+      for (let i = 0; i < bytes.byteLength; i++) {
+        binary += String.fromCharCode(bytes[i]);
+      }
+      return btoa(binary);
+    }
+  } catch (e) {
+    console.warn("Hugging Face Space TTS error:", e);
   }
 
   // 2. Hugging Face Free Serverless Inference API
@@ -171,7 +180,8 @@ export default {
         status: "ok",
         service: "My2ndBrain Cloud Gateway",
         sttModels: ["@cf/deepgram/nova-3", "@cf/openai/whisper"],
-        ttsEngine: env.ELEVENLABS_API_KEY ? "ElevenLabs (Paul Bettany Jarvis)" : "Deepgram Aura (British Male)",
+        ttsEngine: "Hugging Face Piper JARVIS (Paul Bettany)",
+        hfSpaceUrl: env.HF_SPACE_URL || "https://ekc4-jarvis-tts.hf.space",
         ttsSpeaker: env.TTS_SPEAKER || "angus",
         brainLLM: "@cf/meta/llama-3.1-8b-instruct-fp8",
         museConfigured: Boolean(env.HATCH_SESS && env.HATCH_GW)
@@ -301,13 +311,12 @@ export default {
 
   async scheduled(event: any, env: Env, ctx: any): Promise<void> {
     // 24-hour keep-alive ping for Hugging Face Space so it never sleeps
-    if (env.HF_SPACE_URL) {
-      try {
-        await fetch(env.HF_SPACE_URL);
-        console.log("Hugging Face Space keep-alive ping sent.");
-      } catch (e) {
-        console.warn("Hugging Face Space keep-alive ping error:", e);
-      }
+    const hfSpaceUrl = env.HF_SPACE_URL || "https://ekc4-jarvis-tts.hf.space";
+    try {
+      await fetch(`${hfSpaceUrl.replace(/\/$/, "")}/health`);
+      console.log("Hugging Face Space keep-alive ping sent to:", hfSpaceUrl);
+    } catch (e) {
+      console.warn("Hugging Face Space keep-alive ping error:", e);
     }
   }
 };
