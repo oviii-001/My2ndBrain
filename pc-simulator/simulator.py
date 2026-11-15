@@ -125,7 +125,24 @@ def speak_jarvis_neural(text):
     if not text:
         return
 
-    # 1. Primary: Hugging Face Piper JARVIS (Paul Bettany Voice)
+    # 1. Primary: Live Hugging Face Piper JARVIS (Paul Bettany Voice)
+    try:
+        import requests
+        import io
+        import pygame
+        resp = requests.post("https://ekc4-jarvis-tts.hf.space/speak", json={"text": text[:350]}, timeout=8)
+        if resp.status_code == 200 and len(resp.content) > 44:
+            if not pygame.mixer.get_init():
+                pygame.mixer.init()
+            pygame.mixer.music.load(io.BytesIO(resp.content))
+            pygame.mixer.music.play()
+            while pygame.mixer.music.get_busy():
+                time.sleep(0.04)
+            return True
+    except Exception as e:
+        print(f"[!] Hugging Face Piper voice notice ({e}), falling back to Edge Neural...")
+
+    # 2. Local Piper JARVIS (if downloaded)
     piper = _get_piper_voice()
     if piper:
         try:
