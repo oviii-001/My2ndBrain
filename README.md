@@ -66,11 +66,11 @@ Meta's **Muse AI** (`https://muse.ai`) is an autonomous personal AI agent capabl
 │   │  1. STT Ingest: @cf/openai/whisper                                  │   │
 │   │     • High-speed 16kHz speech transcription (~1.0s)                 │   │
 │   │                                                                     │   │
-│   │  2. Neural TTS Synthesizer                                          │   │
-│   │     • Converts assistant reply to natural 24kHz audio (~1.0s)       │   │
+│   │  2. Neural TTS: Hugging Face Piper JARVIS (Paul Bettany)            │   │
+│   │     • High-fidelity 22.05kHz authentic Iron Man voice (~1.0s)       │   │
 │   │                                                                     │   │
-│   │  3. Fallback LLM: @cf/meta/llama-3.1-8b-instruct                    │   │
-│   │     • Instant failover brain if Muse AI network session resets      │   │
+│   │  3. Meta Muse AI Gateway Protocol Dispatcher                        │   │
+│   │     • Dedicated bridge to your authentic Muse AI account            │   │
 │   └─────────────────────────────────────────────────────────────────────┘   │
 │                                     ▲                                       │
 │                                     │ HTTPS / REST                          │
