@@ -20,6 +20,23 @@ from muse_ai.auth import MuseAuth
 from muse_ai.client import MuseClient
 
 STATE_DIR = REPO_DIR / ".muse-state"
+STATE_DIR.mkdir(parents=True, exist_ok=True)
+
+# Support 12-Factor Cloud Deployments (Render / Containers) via Environment Variables
+if "MUSE_COOKIES_JSON" in os.environ:
+    (STATE_DIR / "cookies.json").write_text(os.environ["MUSE_COOKIES_JSON"], encoding="utf-8")
+if "MUSE_DEVICE_JSON" in os.environ:
+    (STATE_DIR / "device.json").write_text(os.environ["MUSE_DEVICE_JSON"], encoding="utf-8")
+if "MUSE_STATE_B64" in os.environ:
+    import base64
+    try:
+        raw_data = json.loads(base64.b64decode(os.environ["MUSE_STATE_B64"]).decode("utf-8"))
+        if "cookies" in raw_data:
+            (STATE_DIR / "cookies.json").write_text(json.dumps(raw_data["cookies"]), encoding="utf-8")
+        if "device" in raw_data:
+            (STATE_DIR / "device.json").write_text(json.dumps(raw_data["device"]), encoding="utf-8")
+    except Exception as e:
+        print("[!] Warning: Error parsing MUSE_STATE_B64:", e)
 
 class MuseBridge:
     def __init__(self):

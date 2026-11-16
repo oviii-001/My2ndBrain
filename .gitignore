@@ -5,6 +5,7 @@
 *.pem
 *.key
 .muse-state/
+.muse_state_b64.txt
 __pycache__/
 *.pyc
 
