@@ -80,6 +80,16 @@ async function generateSpeech(text: string, env: Env): Promise<string | null> {
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
+    const corsHeaders = {
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type, Accept, Authorization, X-Transcript, X-Reply-Text"
+    };
+
+    if (request.method === "OPTIONS") {
+      return new Response(null, { headers: corsHeaders });
+    }
+
     const url = new URL(request.url);
 
     // Health Check Endpoint
@@ -93,7 +103,7 @@ export default {
         brain: "Meta Muse AI (Hatch Noise_XX Protocol)",
         museBridgeConfigured: Boolean(env.MUSE_BRIDGE_URL)
       }), {
-        headers: { "Content-Type": "application/json" }
+        headers: { ...corsHeaders, "Content-Type": "application/json" }
       });
     }
 
@@ -104,10 +114,10 @@ export default {
         const prompt = body?.message || body?.prompt || "Hello Jarvis";
         const reply = await queryJarvisBrain(prompt, env);
         return new Response(JSON.stringify({ prompt, reply }), {
-          headers: { "Content-Type": "application/json" }
+          headers: { ...corsHeaders, "Content-Type": "application/json" }
         });
       } catch (err: any) {
-        return new Response(JSON.stringify({ error: err.message }), { status: 400 });
+        return new Response(JSON.stringify({ error: err.message }), { status: 400, headers: corsHeaders });
       }
     }
 
@@ -118,13 +128,13 @@ export default {
         const text = body?.text || "System operational";
         const audioBase64 = await generateSpeech(text, env);
         if (!audioBase64) {
-          return new Response(JSON.stringify({ error: "TTS generation failed" }), { status: 500 });
+          return new Response(JSON.stringify({ error: "TTS generation failed" }), { status: 500, headers: corsHeaders });
         }
         return new Response(JSON.stringify({ text, audio: audioBase64 }), {
-          headers: { "Content-Type": "application/json" }
+          headers: { ...corsHeaders, "Content-Type": "application/json" }
         });
       } catch (err: any) {
-        return new Response(JSON.stringify({ error: err.message }), { status: 400 });
+        return new Response(JSON.stringify({ error: err.message }), { status: 400, headers: corsHeaders });
       }
     }
 
@@ -133,17 +143,53 @@ export default {
       try {
         const audioBuffer = await request.arrayBuffer();
         if (!audioBuffer || audioBuffer.byteLength === 0) {
-          return new Response(JSON.stringify({ error: "Empty audio payload" }), { status: 400 });
+          return new Response(JSON.stringify({ error: "Empty audio payload" }), { status: 400, headers: corsHeaders });
         }
         const audioBytes = [...new Uint8Array(audioBuffer)];
         const whisperResult: any = await env.AI.run("@cf/openai/whisper", { audio: audioBytes });
         const transcript = whisperResult?.text?.trim() || "";
 
         return new Response(JSON.stringify({ transcript, engine: "openai-whisper" }), {
-          headers: { "Content-Type": "application/json" }
+          headers: { ...corsHeaders, "Content-Type": "application/json" }
         });
       } catch (err: any) {
-        return new Response(JSON.stringify({ error: err.message }), { status: 500 });
+        return new Response(JSON.stringify({ error: err.message }), { status: 500, headers: corsHeaders });
+      }
+    }
+
+    // Text Prompt Pipeline Endpoint (Instant Zero-Latency: skips Whisper STT, queries Muse AI + Piper JARVIS TTS)
+    if (url.pathname === "/api/prompt" && request.method === "POST") {
+      try {
+        const body: any = await request.json();
+        const prompt = body?.prompt || body?.message || "Hello";
+        const replyText = await queryJarvisBrain(prompt, env);
+        const audioBase64 = await generateSpeech(replyText, env);
+
+        if (request.headers.get("Accept")?.includes("audio/wav") && audioBase64) {
+          const binaryString = atob(audioBase64);
+          const bytes = new Uint8Array(binaryString.length);
+          for (let i = 0; i < binaryString.length; i++) {
+            bytes[i] = binaryString.charCodeAt(i);
+          }
+          return new Response(bytes, {
+            headers: {
+              ...corsHeaders,
+              "Content-Type": "audio/wav",
+              "X-Transcript": encodeURIComponent(prompt),
+              "X-Reply-Text": encodeURIComponent(replyText)
+            }
+          });
+        }
+
+        return new Response(JSON.stringify({
+          transcript: prompt,
+          reply: replyText,
+          audio: audioBase64
+        }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" }
+        });
+      } catch (err: any) {
+        return new Response(JSON.stringify({ error: err.message }), { status: 500, headers: corsHeaders });
       }
     }
 
@@ -152,7 +198,7 @@ export default {
       try {
         const audioBuffer = await request.arrayBuffer();
         if (!audioBuffer || audioBuffer.byteLength === 0) {
-          return new Response(JSON.stringify({ error: "Empty audio payload" }), { status: 400 });
+          return new Response(JSON.stringify({ error: "Empty audio payload" }), { status: 400, headers: corsHeaders });
         }
 
         const input = {
@@ -167,7 +213,7 @@ export default {
             transcript: "",
             reply: "I couldn't hear any clear speech.",
             audio: null
-          }), { headers: { "Content-Type": "application/json" } });
+          }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
         }
 
         const replyText = await queryJarvisBrain(transcript, env);
@@ -181,6 +227,7 @@ export default {
           }
           return new Response(bytes, {
             headers: {
+              ...corsHeaders,
               "Content-Type": "audio/wav",
               "X-Transcript": encodeURIComponent(transcript),
               "X-Reply-Text": encodeURIComponent(replyText)
@@ -193,10 +240,10 @@ export default {
           reply: replyText,
           audio: audioBase64
         }), {
-          headers: { "Content-Type": "application/json" }
+          headers: { ...corsHeaders, "Content-Type": "application/json" }
         });
       } catch (error: any) {
-        return new Response(JSON.stringify({ error: error.message }), { status: 500 });
+        return new Response(JSON.stringify({ error: error.message }), { status: 500, headers: corsHeaders });
       }
     }
 
@@ -204,13 +251,23 @@ export default {
   },
 
   async scheduled(event: any, env: Env, ctx: any): Promise<void> {
-    // 24-hour keep-alive ping for Hugging Face Space so it never sleeps
+    // Keep-alive ping for Hugging Face TTS Space and Render Muse AI Bridge
     const hfSpaceUrl = env.HF_SPACE_URL || "https://ekc4-jarvis-tts.hf.space";
     try {
       await fetch(`${hfSpaceUrl.replace(/\/$/, "")}/health`);
       console.log("Hugging Face Space keep-alive ping sent to:", hfSpaceUrl);
     } catch (e) {
       console.warn("Hugging Face Space keep-alive ping error:", e);
+    }
+
+    if (env.MUSE_BRIDGE_URL) {
+      try {
+        const targetUrl = env.MUSE_BRIDGE_URL.replace(/\/$/, "");
+        await fetch(`${targetUrl}/health`);
+        console.log("Render Muse AI Bridge keep-alive ping sent to:", targetUrl);
+      } catch (e) {
+        console.warn("Render Muse AI keep-alive ping error:", e);
+      }
     }
   }
 };
